@@ -50,3 +50,4 @@ def create_task(client, **kwargs) -> dict:
     res = client.post("/tasks", json=payload)
     assert res.status_code == 201, res.text
     return res.json()
+

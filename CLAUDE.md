@@ -11,7 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | レイヤー | 技術 |
 |---------|------|
 | バックエンド | FastAPI (Python) |
-| フロントエンド | Nuxt 3 + Pinia + TypeScript (設計済み・未実装) |
+| フロントエンド | Nuxt 4 + Nuxt UI + Pinia + TypeScript |
 | DB | SQLite |
 | ORM | SQLAlchemy |
 | マイグレーション | Alembic |
@@ -51,6 +51,31 @@ backend/.venv/bin/pytest backend/tests/test_tasks.py::test_function_name  # 単�
 
 ※ テスト実行は `backend/` 配下で行う（`pytest.ini` がそこにあるため）。
 
+---
+
+### フロントエンド（`frontend/`）
+
+パッケージマネージャーは **npm**。
+
+```bash
+# セットアップ
+cd frontend && npm install
+
+# 開発サーバー起動（http://localhost:3000）
+cd frontend && npm run dev
+
+# 型チェック
+cd frontend && npm run typecheck
+
+# lint
+cd frontend && npm run lint
+
+# ビルド
+cd frontend && npm run build
+```
+
+**環境変数:** `frontend/.env` に `NUXT_PUBLIC_API_BASE=http://localhost:8000` を設定（`.env.example` 参照）。
+
 ## バックエンドアーキテクチャ（`backend/`）
 
 4層構造：
@@ -80,12 +105,25 @@ db/         ← セッション管理・ベース定義
 - priority=must → 7日超で放置
 - priority=should → 21日超で放置
 
-## フロントエンド設計方針（`frontend/`、未実装）
+## フロントエンドアーキテクチャ（`frontend/app/`）
 
-詳細は `documents/frontend_design.md` を参照。
-- `repositories/` が API通信層（`$fetch` 使用）
-- `composables/` がビジネスロジック・ストア更新
-- `stores/` が Pinia ストア
+Nuxt 4 の `app/` ディレクトリ規約に従う。
+
+```
+pages/        ← ファイルベースルーティング（7画面）
+components/   ← UI部品（task/ checklist/ carryover/ capture/ common/）
+composables/  ← ビジネスロジック・ストア更新・エラーハンドリング
+stores/       ← Pinia ストア（taskStore / carryoverStore / captureStore）
+repositories/ ← API通信のみ（$fetch ラッパー）
+types/        ← TypeScript 型定義
+utils/        ← 共通処理（staleThreshold / dateFormat）
+```
+
+**呼び出しフロー:** `pages/components → composables → repositories → FastAPI`
+
+- `repositories/` はエラーをそのまま投げ上げる
+- `composables/` で catch して `useToast` で通知
+- `runtimeConfig.public.apiBase` で API ベース URL を管理（`.env` の `NUXT_PUBLIC_API_BASE`）
 
 ## 設計ドキュメント
 
@@ -127,4 +165,26 @@ db/         ← セッション管理・ベース定義
 - `last_updated_at` は SQLite の `onupdate` が効かないため、service 層で `datetime.utcnow()` を明示的にセット
 - Task の自己参照リレーションシップは `remote_side=[id]` を `parent` 側に指定
 
-**次のステップ:** フロントエンド（Nuxt 3）の実装。`documents/frontend_design.md` 参照。
+**次のステップ:** フロントエンド（Nuxt 4）の実装。`documents/frontend_design.md` 参照。
+
+### 2026-02-27 完了
+
+**フロントエンド全層の実装完了（lint PASS、typecheck PASS）**
+
+- 環境: Nuxt 4 + Nuxt UI v4 + Pinia、パッケージマネージャーは npm
+- `frontend/.env` に `NUXT_PUBLIC_API_BASE=http://localhost:8000` 設定済み
+- 実装済みファイル:
+  - `app/types/` — task・checklist・carryover・capture・completion（全型定義）
+  - `app/repositories/` — task・checklist・carryover・capture（全 API 通信層）
+  - `app/stores/` — taskStore・carryoverStore・captureStore
+  - `app/utils/` — staleThreshold・dateFormat
+  - `app/composables/` — useTask・useChecklist・useCarryover・useCapture・useStale・useErrorToast
+  - `app/components/` — common/（PageHeader・ConfirmDialog）、task/（TaskCard・TaskForm・TaskStatusBadge・TaskTypeBadge・TaskChildList）、checklist/（ChecklistItem・ChecklistPanel）、carryover/（CarryoverActionBar）、capture/（CaptureInput）
+  - `app/pages/` — index・tasks/new・tasks/[id]/index・tasks/[id]/edit・carryover・stale・capture（全7画面）
+
+**実装時の注意点:**
+- `@pinia/nuxt` は latest（Nuxt 4 対応版）を使用すること
+- `app/` ディレクトリが Nuxt 4 のソースルート（Nuxt 3 の `/` 直下相当）
+- `repositories/` ディレクトリに個別ファイルと `index.ts` が同居すると Nuxt の重複 auto-import WARN が出るが動作に問題なし
+- Vue `<script setup>` の props は `const { foo } = defineProps<...>()` の形で分割代入する（`const props = defineProps<...>()` は `props` unused として ESLint エラーになる）
+- `TaskUpdateRequest.status` は `Exclude<TaskStatus, 'done'>` 型（完了遷移は `POST /complete` のみ）

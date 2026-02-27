@@ -1,0 +1,25 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - sqlite_data:/app
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-sqlite:///./tasks.db}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      WORKERS: ${WORKERS:-2}
+    command: sh -c "uvicorn main:app --host 0.0.0.0 --port 8000 --workers $${WORKERS:-2}"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      NUXT_PUBLIC_API_BASE: ${NUXT_PUBLIC_API_BASE}
+      NUXT_API_BASE_SERVER: ${NUXT_API_BASE_SERVER:-http://backend:8000}

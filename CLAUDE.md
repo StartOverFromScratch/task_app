@@ -188,3 +188,6 @@ utils/        ← 共通処理（staleThreshold / dateFormat）
 - `repositories/` ディレクトリに個別ファイルと `index.ts` が同居すると Nuxt の重複 auto-import WARN が出るが動作に問題なし
 - Vue `<script setup>` の props は `const { foo } = defineProps<...>()` の形で分割代入する（`const props = defineProps<...>()` は `props` unused として ESLint エラーになる）
 - `TaskUpdateRequest.status` は `Exclude<TaskStatus, 'done'>` 型（完了遷移は `POST /complete` のみ）
+- Nuxt UI v3 の `USelect` は items の `value` に空文字不可。「全て」選択肢は items から除外し `placeholder` プロップで代替する
+- FastAPI に `CORSMiddleware` を追加済み（`allow_origins=["http://localhost:3000"]`）
+- フロントエンドの動作には Node.js 15 以上が必要。zsh ターミナル（nvm 有効）で起動すること

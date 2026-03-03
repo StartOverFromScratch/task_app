@@ -24,3 +24,5 @@ services:
     environment:
       NUXT_PUBLIC_API_BASE: ${NUXT_PUBLIC_API_BASE:-http://localhost:8000}
       NUXT_API_BASE_SERVER: ${NUXT_API_BASE_SERVER:-http://backend:8000}
+      CHOKIDAR_USEPOLLING: "true"
+      WATCHPACK_POLLING: "true"

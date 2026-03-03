@@ -27,6 +27,15 @@ export default defineNuxtConfig({
     '/': { prerender: false }
   },
 
+  vite: {
+    server: {
+      watch: {
+        usePolling: true,
+        interval: 1000
+      }
+    }
+  },
+
   compatibilityDate: '2025-01-15',
 
   eslint: {

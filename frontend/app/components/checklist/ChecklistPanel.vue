@@ -7,7 +7,8 @@ const emit = defineEmits<{ refresh: [] }>()
 const { createItem } = useChecklist()
 const newText = ref('')
 
-async function handleAdd() {
+async function handleAdd(e?: KeyboardEvent) {
+  if (e?.isComposing) return
   if (!newText.value.trim()) return
   await createItem(props.taskId, { text: newText.value.trim() })
   newText.value = ''

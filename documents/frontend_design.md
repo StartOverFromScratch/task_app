@@ -1,6 +1,6 @@
 # タスク管理システム フロントエンド設計書
 
-作成日: 2026-02-26 | バージョン: 1.0
+作成日: 2026-02-26 | バージョン: 1.1 | 最終更新: 2026-03-03
 
 ---
 
@@ -8,7 +8,7 @@
 
 | 項目 | 内容 |
 |------|------|
-| フレームワーク | Nuxt 3 |
+| フレームワーク | Nuxt 4 |
 | UIライブラリ | Nuxt UI（Tailwindベース） |
 | 状態管理 | Pinia |
 | API通信 | Repositoryパターン（$fetch） |
@@ -82,7 +82,8 @@ frontend/
 │
 └── utils/
     ├── staleThreshold.ts         # 放置判定ロジック（must:7日 / should:21日）
-    └── dateFormat.ts             # 日付フォーマット共通処理
+    ├── dateFormat.ts             # 日付フォーマット共通処理
+    └── apiBase.ts                # SSR/CSR で API ベース URL を切り替えるユーティリティ
 ```
 
 ---
@@ -108,31 +109,49 @@ pages/components → composables → repositories → FastAPI
 
 ### 2.2 Repositoryの基本形
 
-baseURLは`.env`の`NUXT_PUBLIC_API_BASE`から取得する。
+baseURLは`utils/apiBase.ts`の`useApiBase()`で取得する。SSR（サーバーサイド）では内部ネットワーク用URL、ブラウザでは公開URLを自動的に切り替える（Docker対応のため）。
+
+```typescript
+// utils/apiBase.ts
+export const useApiBase = (): string => {
+  const config = useRuntimeConfig()
+  if (import.meta.server && config.apiBaseServer) {
+    return config.apiBaseServer as string  // Docker内SSR: http://backend:8000
+  }
+  return config.public.apiBase            // ブラウザ: http://localhost:8000 など
+}
+```
 
 ```typescript
 // repositories/taskRepository.ts
 export const taskRepository = {
   async fetchAll(params?: TaskQueryParams): Promise<Task[]> {
-    return await $fetch('/tasks', { baseURL: useRuntimeConfig().public.apiBase, params })
+    return await $fetch('/tasks', { baseURL: useApiBase(), params })
   },
   async fetchById(id: number): Promise<Task> {
-    return await $fetch(`/tasks/${id}`, { baseURL: useRuntimeConfig().public.apiBase })
+    return await $fetch(`/tasks/${id}`, { baseURL: useApiBase() })
   },
   async create(body: TaskCreateRequest): Promise<Task> {
-    return await $fetch('/tasks', { method: 'POST', baseURL: useRuntimeConfig().public.apiBase, body })
+    return await $fetch('/tasks', { method: 'POST', baseURL: useApiBase(), body })
   },
   async update(id: number, body: TaskUpdateRequest): Promise<Task> {
-    return await $fetch(`/tasks/${id}`, { method: 'PATCH', baseURL: useRuntimeConfig().public.apiBase, body })
+    return await $fetch(`/tasks/${id}`, { method: 'PATCH', baseURL: useApiBase(), body })
   },
   async remove(id: number): Promise<void> {
-    return await $fetch(`/tasks/${id}`, { method: 'DELETE', baseURL: useRuntimeConfig().public.apiBase })
+    return await $fetch(`/tasks/${id}`, { method: 'DELETE', baseURL: useApiBase() })
   },
   async complete(id: number): Promise<Task> {
-    return await $fetch(`/tasks/${id}/complete`, { method: 'POST', baseURL: useRuntimeConfig().public.apiBase })
+    return await $fetch(`/tasks/${id}/complete`, { method: 'POST', baseURL: useApiBase() })
   },
 }
 ```
+
+関連する環境変数（`.env`）：
+
+| 変数名 | 用途 |
+|--------|------|
+| `NUXT_PUBLIC_API_BASE` | ブラウザからアクセスするAPI URL（例: `http://192.168.x.x:8000`） |
+| `NUXT_API_BASE_SERVER` | SSRからアクセスするAPI URL（例: `http://backend:8000`）。未設定時は`NUXT_PUBLIC_API_BASE`にフォールバック |
 
 ### 2.3 エラーハンドリング方針
 
@@ -303,7 +322,7 @@ export const useCaptureStore = defineStore('capture', () => {
 └─────────────────────────────────────────┘
 ```
 
-主要コンポーネント：`ChecklistPanel.vue`、`ChecklistItem.vue`（extract操作含む）、`TaskChildList.vue`、`CaptureInput.vue`
+主要コンポーネント：`ChecklistPanel.vue`、`ChecklistItem.vue`（インライン編集・extract操作含む）、`TaskChildList.vue`、`CaptureInput.vue`
 
 ### 4.4 タスク作成・編集フォーム `/tasks/new`, `/tasks/[id]/edit`
 
@@ -401,7 +420,59 @@ must（7日）・should（21日）の閾値で2セクションに分けて表示
 
 ---
 
-## 5. 次回スコープ
+---
+
+## 5. 実装上の注意点・既知の挙動
+
+### 5.1 日本語IME入力（isComposing）
+
+`@keydown.enter` で処理をトリガーするフォームでは、日本語変換確定の Enter と送信の Enter が競合する。`event.isComposing === true` の間はハンドラをスキップすることで対処する。
+
+```typescript
+async function handleAdd(e?: KeyboardEvent) {
+  if (e?.isComposing) return  // IME変換中は無視
+  // ...
+}
+```
+
+対象コンポーネント：`ChecklistPanel.vue`（新規アイテム追加）、`ChecklistItem.vue`（テキスト編集確定）
+
+### 5.2 チェックリストのインライン編集
+
+`ChecklistItem.vue` はテキストのインライン編集に対応している。
+
+| 操作 | 動作 |
+|------|------|
+| テキストをダブルクリック | 編集モードに入る |
+| 鉛筆アイコンをクリック | 編集モードに入る |
+| Enter / フォーカスを外す | 変更を保存（`PATCH /tasks/{id}/checklist/{item_id}`） |
+| Esc | 編集キャンセル |
+
+切り出し済みアイテム（`extracted_task_id` あり）は編集不可。空文字または変更なしの場合はAPIを呼ばずにスキップする。
+
+### 5.3 Docker開発環境でのHMR（Hot Module Replacement）
+
+macOS + Docker では inotify によるファイル変更検知が機能しないため、以下の設定でポーリングを有効にしている。
+
+`nuxt.config.ts`:
+```typescript
+vite: {
+  server: {
+    watch: { usePolling: true, interval: 1000 }
+  }
+}
+```
+
+`docker-compose.dev.yml`:
+```yaml
+environment:
+  CHOKIDAR_USEPOLLING: "true"
+  WATCHPACK_POLLING: "true"
+```
+
+---
+
+## 6. 次回スコープ
 
 | 項目 | 優先度 | 内容 |
 |------|-------|------|

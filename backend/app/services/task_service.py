@@ -39,21 +39,27 @@ def _item_or_404(db: Session, task_id: int, item_id: int) -> TaskChecklistItem:
 
 def get_tasks(
     db: Session,
-    status: Optional[str] = None,
+    statuses: list[str] = [],
     task_type: Optional[str] = None,
     priority: Optional[str] = None,
     parent_id: Optional[int] = None,
+    sort_by: str = "due_date",
+    order: str = "asc",
 ) -> list[Task]:
+    from sqlalchemy import nulls_last
+
     q = db.query(Task)
-    if status:
-        q = q.filter(Task.status == status)
+    if statuses:
+        q = q.filter(Task.status.in_(statuses))
     if task_type:
         q = q.filter(Task.task_type == task_type)
     if priority:
         q = q.filter(Task.priority == priority)
     if parent_id is not None:
         q = q.filter(Task.parent_id == parent_id)
-    return q.order_by(Task.created_at.desc()).all()
+    col = Task.due_date if sort_by == "due_date" else Task.created_at
+    sort_expr = nulls_last(col.asc()) if order == "asc" else nulls_last(col.desc())
+    return q.order_by(sort_expr).all()
 
 
 def get_task_detail(db: Session, task_id: int) -> dict:

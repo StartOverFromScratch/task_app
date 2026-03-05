@@ -1,6 +1,6 @@
 from typing import Optional
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -22,13 +22,23 @@ router = APIRouter()
 
 @router.get("", response_model=list[TaskResponse])
 def list_tasks(
-    status: Optional[TaskStatus] = None,
+    status: list[TaskStatus] = Query(default=[]),
     task_type: Optional[TaskType] = None,
     priority: Optional[Priority] = None,
     parent_id: Optional[int] = None,
+    sort_by: str = Query(default="due_date", pattern="^(due_date|created_at)$"),
+    order: str = Query(default="asc", pattern="^(asc|desc)$"),
     db: Session = Depends(get_db),
 ):
-    return task_service.get_tasks(db, status=status, task_type=task_type, priority=priority, parent_id=parent_id)
+    return task_service.get_tasks(
+        db,
+        statuses=status,
+        task_type=task_type,
+        priority=priority,
+        parent_id=parent_id,
+        sort_by=sort_by,
+        order=order,
+    )
 
 
 # /stale は /{task_id} より先に定義する必要がある

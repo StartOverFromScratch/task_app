@@ -1,35 +1,75 @@
 <script setup lang="ts">
-import type { TaskStatus, TaskType, Priority } from '~/types/task'
+import type { Task, TaskStatus, TaskType, Priority } from '~/types/task'
 
-const { fetchTasks } = useTask()
+const { fetchTasks, fetchTask } = useTask()
 const { fetchCandidates } = useCarryover()
 const taskStore = useTaskStore()
 const carryoverStore = useCarryoverStore()
+const router = useRouter()
 
-const statusFilter = ref<TaskStatus | undefined>(undefined)
+const ALL_STATUSES: TaskStatus[] = ['todo', 'doing', 'done', 'carryover_candidate', 'needs_redefine', 'snoozed']
+const STATUS_LABELS: Record<TaskStatus, string> = {
+  todo: '未着手',
+  doing: '進行中',
+  done: '完了',
+  carryover_candidate: '繰越候補',
+  needs_redefine: '要再定義',
+  snoozed: '保留'
+}
+
+const selectedStatuses = ref<TaskStatus[]>(['todo', 'doing'])
 const typeFilter = ref<TaskType | undefined>(undefined)
 const priorityFilter = ref<Priority | undefined>(undefined)
 
-const statusTabs: Array<{ label: string, value: TaskStatus | undefined }> = [
-  { label: '全て', value: undefined },
-  { label: '未着手', value: 'todo' },
-  { label: '進行中', value: 'doing' },
-  { label: '完了', value: 'done' }
-]
+const staleCount = ref(0)
+const carryoverCount = computed(() => carryoverStore.candidates.length)
+
+function toggleStatus(s: TaskStatus) {
+  if (selectedStatuses.value.includes(s)) {
+    selectedStatuses.value = selectedStatuses.value.filter(x => x !== s)
+  } else {
+    selectedStatuses.value = [...selectedStatuses.value, s]
+  }
+  loadTasks()
+}
+
+async function loadTasks() {
+  await fetchTasks({
+    status: selectedStatuses.value.length > 0 ? selectedStatuses.value : undefined,
+    sort_by: 'due_date',
+    order: 'asc'
+  })
+}
 
 const filteredTasks = computed(() => {
-  let list = taskStore.tasks.filter(t => !t.parent_id)
-  if (statusFilter.value) list = list.filter(t => t.status === statusFilter.value)
+  let list = taskStore.tasks
   if (typeFilter.value) list = list.filter(t => t.task_type === typeFilter.value)
   if (priorityFilter.value) list = list.filter(t => t.priority === priorityFilter.value)
   return list
 })
 
-const staleCount = ref(0)
-const carryoverCount = computed(() => carryoverStore.candidates.length)
+function isLargeScreen(): boolean {
+  return typeof window !== 'undefined' && window.innerWidth >= 1024
+}
+
+async function handleTaskSelect(task: Task) {
+  if (isLargeScreen()) {
+    taskStore.selectTask(task.id)
+    await fetchTask(task.id)
+  } else {
+    await router.push(`/tasks/${task.id}`)
+  }
+}
+
+async function handleDetailRefresh() {
+  if (taskStore.selectedTaskId) {
+    await fetchTask(taskStore.selectedTaskId)
+  }
+  await loadTasks()
+}
 
 onMounted(async () => {
-  await fetchTasks()
+  await loadTasks()
   await fetchCandidates()
   try {
     const stale = await taskRepository.fetchStale()
@@ -39,86 +79,112 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div>
-    <div class="flex items-center justify-between mb-6">
-      <h1 class="text-2xl font-bold">
-        タスク一覧
-      </h1>
-      <UButton
-        to="/tasks/new"
-        icon="i-lucide-plus"
-      >
-        新規作成
-      </UButton>
-    </div>
-
-    <div class="flex flex-wrap gap-2 mb-4">
-      <UAlert
-        v-if="staleCount > 0"
-        :title="`放置タスク ${staleCount}件`"
-        color="warning"
-        variant="subtle"
-        icon="i-lucide-clock"
-        :actions="[{ label: '確認する', to: '/stale', variant: 'outline', size: 'xs' }]"
-        class="flex-1"
-      />
-      <UAlert
-        v-if="carryoverCount > 0"
-        :title="`繰り越し候補 ${carryoverCount}件`"
-        color="error"
-        variant="subtle"
-        icon="i-lucide-calendar-x"
-        :actions="[{ label: '処理する', to: '/carryover', variant: 'outline', size: 'xs' }]"
-        class="flex-1"
-      />
-    </div>
-
-    <div class="flex flex-wrap items-center gap-2 mb-4">
-      <div class="flex gap-1">
+  <div class="lg:flex lg:h-[calc(100vh-4rem)] lg:overflow-hidden">
+    <!-- 左カラム（全幅 or 360px固定） -->
+    <div class="lg:w-[360px] lg:shrink-0 lg:overflow-y-auto lg:border-r border-default p-4">
+      <div class="flex items-center justify-between mb-6">
+        <h1 class="text-2xl font-bold">
+          タスク一覧
+        </h1>
         <UButton
-          v-for="tab in statusTabs"
-          :key="tab.label"
+          to="/tasks/new"
+          icon="i-lucide-plus"
           size="sm"
-          :variant="statusFilter === tab.value ? 'solid' : 'ghost'"
-          color="neutral"
-          @click="statusFilter = tab.value"
         >
-          {{ tab.label }}
+          新規作成
         </UButton>
       </div>
-      <USelect
-        v-model="typeFilter"
-        :items="[{ label: 'research', value: 'research' }, { label: 'decision', value: 'decision' }, { label: 'execution', value: 'execution' }]"
-        placeholder="全タイプ"
-        value-key="value"
-        size="sm"
-        class="w-36"
-      />
-      <USelect
-        v-model="priorityFilter"
-        :items="[{ label: 'must', value: 'must' }, { label: 'should', value: 'should' }]"
-        placeholder="全優先度"
-        value-key="value"
-        size="sm"
-        class="w-32"
-      />
+
+      <div class="flex flex-wrap gap-2 mb-4">
+        <UAlert
+          v-if="staleCount > 0"
+          :title="`放置タスク ${staleCount}件`"
+          color="warning"
+          variant="subtle"
+          icon="i-lucide-clock"
+          :actions="[{ label: '確認する', to: '/stale', variant: 'outline', size: 'xs' }]"
+          class="flex-1"
+        />
+        <UAlert
+          v-if="carryoverCount > 0"
+          :title="`繰り越し候補 ${carryoverCount}件`"
+          color="error"
+          variant="subtle"
+          icon="i-lucide-calendar-x"
+          :actions="[{ label: '処理する', to: '/carryover', variant: 'outline', size: 'xs' }]"
+          class="flex-1"
+        />
+      </div>
+
+      <!-- ステータスフィルタ（複数選択） -->
+      <div class="flex flex-wrap gap-1 mb-2">
+        <UButton
+          v-for="s in ALL_STATUSES"
+          :key="s"
+          size="xs"
+          :variant="selectedStatuses.includes(s) ? 'solid' : 'ghost'"
+          color="neutral"
+          @click="toggleStatus(s)"
+        >
+          {{ STATUS_LABELS[s] }}
+        </UButton>
+      </div>
+
+      <!-- タイプ・優先度フィルタ -->
+      <div class="flex flex-wrap items-center gap-2 mb-4">
+        <USelect
+          v-model="typeFilter"
+          :items="[{ label: 'research', value: 'research' }, { label: 'decision', value: 'decision' }, { label: 'execution', value: 'execution' }]"
+          placeholder="全タイプ"
+          value-key="value"
+          size="sm"
+          class="w-32"
+        />
+        <USelect
+          v-model="priorityFilter"
+          :items="[{ label: 'must', value: 'must' }, { label: 'should', value: 'should' }]"
+          placeholder="全優先度"
+          value-key="value"
+          size="sm"
+          class="w-28"
+        />
+      </div>
+
+      <div
+        v-if="filteredTasks.length === 0"
+        class="text-center text-muted py-12"
+      >
+        タスクがありません
+      </div>
+      <div
+        v-else
+        class="space-y-2"
+      >
+        <TaskCard
+          v-for="task in filteredTasks"
+          :key="task.id"
+          :task="task"
+          :selected="task.id === taskStore.selectedTaskId"
+          @select="handleTaskSelect"
+        />
+      </div>
     </div>
 
-    <div
-      v-if="filteredTasks.length === 0"
-      class="text-center text-muted py-12"
-    >
-      タスクがありません
-    </div>
-    <div
-      v-else
-      class="space-y-2"
-    >
-      <TaskCard
-        v-for="task in filteredTasks"
-        :key="task.id"
-        :task="task"
+    <!-- 右カラム（lgのみ表示） -->
+    <div class="hidden lg:flex lg:flex-1 lg:overflow-y-auto p-4">
+      <TaskDetailPanel
+        v-if="taskStore.currentTask && taskStore.selectedTaskId"
+        :task="taskStore.currentTask"
+        :task-id="taskStore.selectedTaskId"
+        class="w-full"
+        @refresh="handleDetailRefresh"
       />
+      <div
+        v-else
+        class="flex flex-1 items-center justify-center text-muted"
+      >
+        タスクを選択してください
+      </div>
     </div>
   </div>
 </template>

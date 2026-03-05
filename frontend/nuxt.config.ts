@@ -27,6 +27,8 @@ export default defineNuxtConfig({
     '/': { prerender: false }
   },
 
+  compatibilityDate: '2025-01-15',
+
   vite: {
     server: {
       watch: {
@@ -35,8 +37,6 @@ export default defineNuxtConfig({
       }
     }
   },
-
-  compatibilityDate: '2025-01-15',
 
   eslint: {
     config: {

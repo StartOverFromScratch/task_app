@@ -46,7 +46,7 @@ async function handleAdd(e?: KeyboardEvent) {
         size="sm"
         icon="i-lucide-plus"
         :disabled="!newText.trim()"
-        @click="handleAdd"
+        @click="() => handleAdd()"
       />
     </div>
   </div>

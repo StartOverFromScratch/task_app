@@ -68,10 +68,12 @@ export interface TaskUpdateRequest {
 }
 
 export interface TaskQueryParams {
-  status?: TaskStatus
+  status?: TaskStatus[]
   task_type?: TaskType
   priority?: Priority
   parent_id?: number | null
+  sort_by?: 'due_date' | 'created_at'
+  order?: 'asc' | 'desc'
 }
 
 export interface ConvergenceChecklist {

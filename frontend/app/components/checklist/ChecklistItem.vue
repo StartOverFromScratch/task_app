@@ -56,7 +56,7 @@ function cancelEdit() {
       autofocus
       @keydown.enter.prevent="commitEdit"
       @keydown.esc.prevent="cancelEdit"
-      @blur="commitEdit"
+      @blur="() => commitEdit()"
     />
     <span
       v-else

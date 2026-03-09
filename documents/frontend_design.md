@@ -1,6 +1,21 @@
 # タスク管理システム フロントエンド設計書
 
-作成日: 2026-02-26 | バージョン: 1.1 | 最終更新: 2026-03-03
+作成日: 2026-02-26 | バージョン: 1.3 | 最終更新: 2026-03-09
+
+> v1.2 → v1.3 変更点：
+> - TaskCard.vue：タスク名フォントサイズを `text-2xl` に拡大
+> - TaskCard.vue：完了条件と期限を同一行に横並び表示（期限を右端に配置）
+> - TaskCard.vue：期限の日付フォーマットを `MM/dd` に短縮
+> - タスク一覧：期限フィルタ追加（今日・明日 / 全て）。デフォルトは「今日・明日」
+> - タスク一覧：今日・明日のタスクが3件以下の場合、次に予定がある日まで自動拡張
+
+> v1.1 → v1.2 変更点：
+> - タスク一覧：デフォルトフィルタ（todo/doing）・デフォルトソート（due_date昇順）を明記
+> - タスク一覧：子タスクをデフォルト表示・バッジで識別
+> - タスク一覧：PCでの2カラムレイアウト追加
+> - タスク詳細：タスク名称の表示を明記（設計漏れ補完）
+> - TaskCard.vue：子タスクバッジ表示仕様追加
+> - taskStore.ts：selectedTaskId の状態管理仕様追加
 
 ---
 
@@ -18,15 +33,13 @@
 
 ## 1. ディレクトリ構成
 
-Nuxt 3の規約に従いつつ、API通信層（repositories）とビジネスロジック層（composables）を明確に分離する。
-
 ```
 frontend/
 ├── app.vue
 ├── nuxt.config.ts
 ├── .env
 │
-├── pages/                        # ルーティング
+├── pages/
 │   ├── index.vue                 # タスク一覧（メイン画面）
 │   ├── tasks/
 │   │   ├── new.vue               # タスク新規作成
@@ -39,7 +52,7 @@ frontend/
 │
 ├── components/
 │   ├── task/
-│   │   ├── TaskCard.vue          # タスクカード（一覧用）
+│   │   ├── TaskCard.vue          # タスクカード（子タスクバッジ表示対応）
 │   │   ├── TaskForm.vue          # 作成・編集フォーム
 │   │   ├── TaskStatusBadge.vue   # ステータスバッジ
 │   │   ├── TaskTypeBadge.vue     # タスクタイプバッジ
@@ -48,31 +61,31 @@ frontend/
 │   │   ├── ChecklistPanel.vue    # チェックリスト全体
 │   │   └── ChecklistItem.vue     # 1アイテム（extract操作含む）
 │   ├── carryover/
-│   │   └── CarryoverActionBar.vue # 今日やる・+2日・+7日・要再定義
+│   │   └── CarryoverActionBar.vue
 │   ├── capture/
-│   │   └── CaptureInput.vue      # 分岐論点の投入UI
+│   │   └── CaptureInput.vue
 │   └── common/
 │       ├── PageHeader.vue
 │       └── ConfirmDialog.vue
 │
-├── composables/                  # ビジネスロジック・ストア更新
-│   ├── useTask.ts
+├── composables/
+│   ├── useTask.ts                # デフォルトフィルタ・ソート仕様あり
 │   ├── useChecklist.ts
 │   ├── useCarryover.ts
 │   ├── useStale.ts
 │   └── useCapture.ts
 │
-├── stores/                       # Pinia ストア
-│   ├── taskStore.ts
+├── stores/
+│   ├── taskStore.ts              # selectedTaskId 追加
 │   ├── carryoverStore.ts
 │   └── captureStore.ts
 │
-├── repositories/                 # API通信層
-│   ├── taskRepository.ts
+├── repositories/
+│   ├── taskRepository.ts         # sort_by / order パラメータ対応
 │   ├── checklistRepository.ts
 │   ├── carryoverRepository.ts
 │   ├── captureRepository.ts
-│   └── index.ts                  # まとめてexport
+│   └── index.ts
 │
 ├── types/
 │   ├── task.ts
@@ -81,173 +94,69 @@ frontend/
 │   └── capture.ts
 │
 └── utils/
-    ├── staleThreshold.ts         # 放置判定ロジック（must:7日 / should:21日）
-    ├── dateFormat.ts             # 日付フォーマット共通処理
-    └── apiBase.ts                # SSR/CSR で API ベース URL を切り替えるユーティリティ
+    ├── staleThreshold.ts
+    ├── dateFormat.ts
+    └── apiBase.ts
 ```
 
 ---
 
-## 2. API通信層の設計
+## 2. Repositoryパターン
 
-### 2.1 アーキテクチャ
+### 基本方針
 
-Repositoryパターンを採用する。各層の責務を以下のように分離する。
+- `repositories/` はAPI通信のみを担う（ビジネスロジック禁止）
+- エラーはそのまま投げ上げる（catchは `composables/` で行う）
+- `runtimeConfig.public.apiBase` でAPIベースURLを管理
 
-| 層 | 責務 |
-|----|------|
-| pages / components | 表示・ユーザー操作のみ。composablesを呼ぶ |
-| composables | ビジネスロジック・ストア更新・エラーハンドリング |
-| repositories | API通信のみ（fetch・エラー投げ上げ） |
-| FastAPI backend | データ処理・DB操作 |
-
-呼び出しフロー：
-
-```
-pages/components → composables → repositories → FastAPI
-```
-
-### 2.2 Repositoryの基本形
-
-baseURLは`utils/apiBase.ts`の`useApiBase()`で取得する。SSR（サーバーサイド）では内部ネットワーク用URL、ブラウザでは公開URLを自動的に切り替える（Docker対応のため）。
+### taskRepository.ts（v1.2更新）
 
 ```typescript
-// utils/apiBase.ts
-export const useApiBase = (): string => {
-  const config = useRuntimeConfig()
-  if (import.meta.server && config.apiBaseServer) {
-    return config.apiBaseServer as string  // Docker内SSR: http://backend:8000
-  }
-  return config.public.apiBase            // ブラウザ: http://localhost:8000 など
+// GET /tasks に sort_by / order パラメータを追加
+
+export interface TaskListParams {
+  status?: TaskStatus | TaskStatus[]  // 複数指定対応（将来）
+  task_type?: TaskType
+  priority?: Priority
+  parent_id?: number | null
+  sort_by?: 'due_date' | 'created_at' | 'priority' | 'title'  // v1.2追加
+  order?: 'asc' | 'desc'                                        // v1.2追加
 }
-```
 
-```typescript
-// repositories/taskRepository.ts
 export const taskRepository = {
-  async fetchAll(params?: TaskQueryParams): Promise<Task[]> {
-    return await $fetch('/tasks', { baseURL: useApiBase(), params })
-  },
-  async fetchById(id: number): Promise<Task> {
-    return await $fetch(`/tasks/${id}`, { baseURL: useApiBase() })
-  },
-  async create(body: TaskCreateRequest): Promise<Task> {
-    return await $fetch('/tasks', { method: 'POST', baseURL: useApiBase(), body })
-  },
-  async update(id: number, body: TaskUpdateRequest): Promise<Task> {
-    return await $fetch(`/tasks/${id}`, { method: 'PATCH', baseURL: useApiBase(), body })
-  },
-  async remove(id: number): Promise<void> {
-    return await $fetch(`/tasks/${id}`, { method: 'DELETE', baseURL: useApiBase() })
-  },
-  async complete(id: number): Promise<Task> {
-    return await $fetch(`/tasks/${id}/complete`, { method: 'POST', baseURL: useApiBase() })
-  },
-}
-```
-
-関連する環境変数（`.env`）：
-
-| 変数名 | 用途 |
-|--------|------|
-| `NUXT_PUBLIC_API_BASE` | ブラウザからアクセスするAPI URL（例: `http://192.168.x.x:8000`） |
-| `NUXT_API_BASE_SERVER` | SSRからアクセスするAPI URL（例: `http://backend:8000`）。未設定時は`NUXT_PUBLIC_API_BASE`にフォールバック |
-
-### 2.3 エラーハンドリング方針
-
-repositories層はエラーをそのまま投げ上げる。composables層でcatchし、Nuxt UIの`useToast`で通知する。
-
-| ステータスコード | ケース | トースト表示 |
-|----------------|--------|------------|
-| 400 | チェックリスト未完了で完了操作 | 未対応のチェックリストが残っています |
-| 404 | 存在しないリソース | 対象が見つかりませんでした |
-| 422 | バリデーションエラー | 入力内容を確認してください |
-| 500 | サーバーエラー | エラーが発生しました。しばらく後に再試行してください |
-
-```typescript
-// composables/useTask.ts（エラーハンドリング例）
-async function completeTask(id: number) {
-  try {
-    const updated = await taskRepository.complete(id)
-    taskStore.upsert(updated)
-  } catch (e: any) {
-    if (e.statusCode === 400) {
-      toast.add({
-        title: '完了できません',
-        description: 'チェックリストに未対応のアイテムが残っています',
-        color: 'red'
-      })
-    } else {
-      toast.add({ title: 'エラーが発生しました', color: 'red' })
-    }
-  }
+  fetchAll: (params: TaskListParams = {}) =>
+    $fetch<Task[]>(`${apiBase}/tasks`, { params }),
+  // ... 他のメソッドは変更なし
 }
 ```
 
 ---
 
-## 3. Piniaストア分割方針
+## 3. Piniaストア設計
 
-### 3.1 ストア一覧
-
-| ストア名 | ファイル | 責務 |
-|---------|---------|------|
-| taskStore | stores/taskStore.ts | タスク一覧・詳細の状態管理 |
-| carryoverStore | stores/carryoverStore.ts | 繰り越し候補の状態管理・操作 |
-| captureStore | stores/captureStore.ts | CaptureBoxアイテムの状態管理 |
-
-### 3.2 taskStore
-
-タスクCRUD・詳細表示の中心ストア。一覧と現在表示中のタスクを管理する。
+### taskStore.ts（v1.2更新）
 
 ```typescript
-export const useTaskStore = defineStore('task', () => {
-  const tasks = ref<Task[]>([])
-  const currentTask = ref<Task | null>(null)
+// selectedTaskId を追加（2カラムレイアウトの選択状態管理）
 
-  function upsert(task: Task) {
-    const idx = tasks.value.findIndex(t => t.id === task.id)
-    if (idx >= 0) tasks.value[idx] = task
-    else tasks.value.unshift(task)
+interface TaskState {
+  tasks: Task[]
+  selectedTaskId: number | null  // v1.2追加：2カラム時の選択タスクID
+  loading: boolean
+  error: string | null
+}
+
+// アクション追加
+actions: {
+  selectTask(id: number | null) {
+    this.selectedTaskId = id
   }
-
-  function remove(id: number) {
-    tasks.value = tasks.value.filter(t => t.id !== id)
-  }
-
-  return { tasks, currentTask, upsert, remove }
-})
+}
 ```
 
-### 3.3 carryoverStore
+### carryoverStore.ts / captureStore.ts
 
-繰り越し候補はtaskStoreと文脈が異なるため分離する。各操作（今日やる・+2日・+7日・要再定義）の実行後はcandidatesから除去し、taskStoreにも反映する。
-
-```typescript
-export const useCarryoverStore = defineStore('carryover', () => {
-  const candidates = ref<Task[]>([])
-
-  function removeCandidate(id: number) {
-    candidates.value = candidates.value.filter(t => t.id !== id)
-  }
-
-  return { candidates, removeCandidate }
-})
-```
-
-### 3.4 captureStore
-
-CaptureBoxはタスクとは独立した概念のため完全分離する。`is_resolved`フラグで未解決・解決済みをフィルタリングする。
-
-```typescript
-export const useCaptureStore = defineStore('capture', () => {
-  const items = ref<CaptureItem[]>([])
-  const unresolved = computed(() => items.value.filter(i => !i.is_resolved))
-  const resolved = computed(() => items.value.filter(i => i.is_resolved))
-
-  return { items, unresolved, resolved }
-})
-```
+変更なし。
 
 ---
 
@@ -265,37 +174,99 @@ export const useCaptureStore = defineStore('capture', () => {
 | 放置タスク | `/stale` | 放置タスクへの対応 |
 | CaptureBox | `/capture` | 分岐論点一覧・解決済み管理 |
 
-### 4.2 タスク一覧画面 `/`
+---
 
-メイン画面。放置タスク・繰り越し候補のバナー通知を表示し、各ページへ誘導する。
+### 4.2 タスク一覧画面 `/`（v1.3更新）
+
+#### モバイル（lg未満）
+
+1カラム表示。タスクカードをタップするとタスク詳細ページ（`/tasks/[id]`）に遷移する。
 
 ```
 ┌─────────────────────────────────────────┐
 │  タスク一覧          [+ 新規作成]        │
 │  ─────────────────────────────────────  │
-│  [全て] [todo] [doing] [done]           │
-│  タイプ▼  優先度▼  カテゴリ▼            │
+│  [未完了/進行中▼] タイプ▼  優先度▼      │  ← デフォルト: todo/doing
+│  [今日・明日] [全て]                    │  ← 期限フィルタ（デフォルト: 今日・明日）
 │  ─────────────────────────────────────  │
 │  ⚠ 放置タスク 3件  ⚠ 繰り越し候補 2件  │
 │  ─────────────────────────────────────  │
 │  ┌─────────────────────────────────┐   │
-│  │ [research] タスクタイトル        │   │
-│  │ 完了条件: ○○になったら完了       │   │
-│  │ 期限: 2026-02-28  優先: must     │   │
-│  │ ステータス: [doing ▼]            │   │
+│  │ [research] [doing] [must]  >    │   │
+│  │ タスクタイトル（text-2xl）        │   │
+│  │ 完了条件: ○○       期限: 02/28  │   │  ← 完了条件と期限を同一行・期限はMM/dd
+│  └─────────────────────────────────┘   │
+│  ┌─────────────────────────────────┐   │
+│  │ [execution] [todo] [子タスク] > │   │
+│  │ 子タスクタイトル                  │   │
+│  │ 完了条件テキスト      期限: 03/01 │   │
 │  └─────────────────────────────────┘   │
 └─────────────────────────────────────────┘
 ```
 
-主要コンポーネント：`TaskCard.vue`、`TaskStatusBadge.vue`、`TaskTypeBadge.vue`
+#### PC（lg以上）：2カラムレイアウト
 
-### 4.3 タスク詳細画面 `/tasks/[id]`
+左カラムでタスクを選択すると、右カラムに詳細をインライン表示する。
 
-タスクの全情報を表示する。チェックリスト・子タスク・CaptureBoxをパネルとして配置する。
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│  タスク一覧                            [+ 新規作成]                  │
+│  ──────────────────────────────────────────────────────────────────  │
+│  [未完了/進行中▼] タイプ▼  優先度▼                                   │
+│  ──────────────────────────────────────────────────────────────────  │
+│  ┌──────────────────────────┐  ┌──────────────────────────────────┐ │
+│  │ ⚠ 放置 3  繰り越し 2    │  │  タスクタイトル    [編集] [削除] │ │
+│  │ ─────────────────────── │  │  ─────────────────────────────── │ │
+│  │ [research] タスクA       │  │  [research]  doing  must         │ │
+│  │ 期限: 2026-02-28 must   │  │  期限: 2026-02-28                │ │
+│  │ [doing ▼]               │  │                                  │ │
+│  │ ─────────────────────── │  │  完了条件                        │ │
+│  │ [execution] 子タスクB   │  │  ○○になったら完了                │ │
+│  │ [子タスク]              │  │  ─────────────────────────────── │ │
+│  │ 期限: 2026-03-01        │  │  チェックリスト           [+追加] │ │
+│  │ [todo ▼]                │  │  ☑ 項目A                        │ │
+│  │ ─────────────────────── │  │  ☐ 項目B  [✎編集] [タスクとして切り出し] │ │
+│  │  ...                    │  │  ─────────────────────────────── │ │
+│  │                         │  │  子タスク                 [+追加] │ │
+│  │                         │  │  └ 子タスクB  [doing]            │ │
+│  │                         │  │  ─────────────────────────────── │ │
+│  │                         │  │              [完了にする]         │ │
+│  └──────────────────────── ┘  └──────────────────────────────────┘ │
+│   ↑ 固定幅 360px                ↑ 残り幅（flex-1）                  │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+**未選択時の右カラム（プレースホルダー）**
+
+```
+┌──────────────────────────────────┐
+│                                  │
+│                                  │
+│      タスクを選択してください      │
+│                                  │
+│                                  │
+└──────────────────────────────────┘
+```
+
+**主要コンポーネント（更新）**
+
+| コンポーネント | 役割 |
+|---|---|
+| `TaskCard.vue` | タスクカード。子タスクバッジ・チェックリスト切り出しバッジを表示 |
+| `TaskStatusBadge.vue` | ステータスバッジ |
+| `TaskTypeBadge.vue` | タスクタイプバッジ |
+
+---
+
+### 4.3 タスク詳細画面 `/tasks/[id]`（v1.2更新）
+
+タスク名称（title）をページタイトルに明示する。2カラム時は右カラムのヘッダーとして機能する。
 
 ```
 ┌─────────────────────────────────────────┐
-│  ← 戻る  タスクタイトル   [編集] [削除] │
+│  ← 戻る                 [編集] [削除]  │
+│  ─────────────────────────────────────  │
+│  タスクタイトル（title を大きく表示）    │  ← v1.2: title 表示を明記
 │  ─────────────────────────────────────  │
 │  [research]  doing  must               │
 │  期限: 2026-02-28                       │
@@ -310,7 +281,7 @@ export const useCaptureStore = defineStore('capture', () => {
 │  ─────────────────────────────────────  │
 │  チェックリスト                [+ 追加] │
 │  ☑ 項目A                               │
-│  ☐ 項目B          [タスクとして切り出し] │
+│  ☐ 項目B    [✎編集] [タスクとして切り出し] │
 │  ─────────────────────────────────────  │
 │  子タスク                    [+ 追加]   │
 │  └ 子タスクタイトル  [doing]            │
@@ -322,11 +293,13 @@ export const useCaptureStore = defineStore('capture', () => {
 └─────────────────────────────────────────┘
 ```
 
-主要コンポーネント：`ChecklistPanel.vue`、`ChecklistItem.vue`（インライン編集・extract操作含む）、`TaskChildList.vue`、`CaptureInput.vue`
+主要コンポーネント：`ChecklistPanel.vue`、`ChecklistItem.vue`、`TaskChildList.vue`、`CaptureInput.vue`
+
+---
 
 ### 4.4 タスク作成・編集フォーム `/tasks/new`, `/tasks/[id]/edit`
 
-researchタイプを選択した場合のみ、探索上限・決定基準フィールドを動的に表示する。
+変更なし。
 
 ```
 ┌─────────────────────────────────────────┐
@@ -349,112 +322,132 @@ researchタイプを選択した場合のみ、探索上限・決定基準フィ
 └─────────────────────────────────────────┘
 ```
 
-主要コンポーネント：`TaskForm.vue`（作成・編集を共通化）
+---
 
 ### 4.5 繰り越し候補画面 `/carryover`
 
-期限超過タスクを一覧表示し、4つのアクションボタンで処理する。操作後はカードが消える。
+変更なし。
 
-```
-┌─────────────────────────────────────────┐
-│  繰り越し候補                            │
-│  ─────────────────────────────────────  │
-│  ┌─────────────────────────────────┐   │
-│  │ タスクタイトル                   │   │
-│  │ 元の期限: 2026-02-20             │   │
-│  │ 完了条件: ○○                    │   │
-│  │                                  │   │
-│  │ [今日やる][+2日][+7日][要再定義] │   │
-│  └─────────────────────────────────┘   │
-│  （カード繰り返し）                      │
-└─────────────────────────────────────────┘
-```
-
-主要コンポーネント：`CarryoverActionBar.vue`
+---
 
 ### 4.6 放置タスク画面 `/stale`
 
-must（7日）・should（21日）の閾値で2セクションに分けて表示する。「向き合う」ボタンでタスク詳細へ遷移する。
+変更なし。
 
-```
-┌─────────────────────────────────────────┐
-│  放置タスク                              │
-│  ─────────────────────────────────────  │
-│  must（7日以上更新なし）                 │
-│  ┌─────────────────────────────────┐   │
-│  │ タスクタイトル  最終更新: 14日前  │   │
-│  │ [向き合う → 詳細へ]              │   │
-│  └─────────────────────────────────┘   │
-│                                         │
-│  should（21日以上更新なし）              │
-│  ┌─────────────────────────────────┐   │
-│  │ タスクタイトル  最終更新: 25日前  │   │
-│  │ [向き合う → 詳細へ]              │   │
-│  └─────────────────────────────────┘   │
-└─────────────────────────────────────────┘
-```
-
-放置判定ロジックは`utils/staleThreshold.ts`に集約する（must: 7日、should: 21日）。
+---
 
 ### 4.7 CaptureBox画面 `/capture`
 
-実行中に湧いた分岐論点を素早く記録する画面。未解決・解決済みのタブ切り替えで管理する。
-
-```
-┌─────────────────────────────────────────┐
-│  CaptureBox                             │
-│  ─────────────────────────────────────  │
-│  [ 論点・メモを入力...       ] [追加]   │
-│  ─────────────────────────────────────  │
-│  [未解決] [解決済み]                    │
-│  ─────────────────────────────────────  │
-│  ┌─────────────────────────────────┐   │
-│  │ 論点メモの内容                   │   │
-│  │ 関連: タスクタイトル             │   │
-│  │ 2026-02-25          [解決済みに] │   │
-│  └─────────────────────────────────┘   │
-└─────────────────────────────────────────┘
-```
-
-主要コンポーネント：`CaptureInput.vue`
+変更なし。
 
 ---
 
+## 5. composables 仕様
+
+### useTask.ts（v1.2更新）
+
+```typescript
+// デフォルトパラメータを明示
+
+const DEFAULT_PARAMS = {
+  status: ['todo', 'doing'] as TaskStatus[],  // 未完了・進行中のみ
+  sort_by: 'due_date' as const,
+  order: 'asc' as const,
+}
+
+export function useTask() {
+  // 初期ロード時は DEFAULT_PARAMS を使用
+  // フィルタUI操作時はパラメータを上書き
+}
+```
+
+**設計上の注意点**
+
+- `due_date = null` のタスクはバックエンド側でNULLs LASTになるため、フロントは考慮不要
+- フィルタ変更時は `taskStore.selectedTaskId` をリセットする（2カラムの選択状態をクリア）
+
+#### 期限フィルタ（v1.3追加）
+
+| 選択値 | 表示対象 |
+|--------|---------|
+| `today_tomorrow`（デフォルト） | due_date が翌日23:59以前のタスク。3件以下なら次の予定日まで自動拡張 |
+| `all` | 期限フィルタなし（全件表示） |
+
+**自動拡張ロジック：**
+1. 今日・明日の件数が3件以下の場合、due_date が明日より後で最も近い日付を探す
+2. その日付の23:59までを上限として拡張表示する
+3. due_date が null のタスクは期限フィルタ時は除外される
+
 ---
 
-## 5. 実装上の注意点・既知の挙動
+## 6. コンポーネント仕様追記
 
-### 5.1 日本語IME入力（isComposing）
+### TaskCard.vue（v1.3更新）
+
+**レイアウト構造**
+
+```
+┌──────────────────────────────────────────────┐
+│ [タイプ] [ステータス] [must]  [子タスク]    >  │
+│ タスク名（text-2xl font-medium）               │
+│ 完了条件テキスト（truncate）   期限: MM/dd     │
+└──────────────────────────────────────────────┘
+```
+
+- タスク名：`text-2xl font-medium`
+- 完了条件と期限は同一行・flexで横並び（完了条件 truncate、期限 shrink-0 右端）
+- 期限フォーマット：`MM/dd`（カード内のみ。他画面は `yyyy/MM/dd` のまま）
+
+**バッジ表示ロジック**
+
+```
+parent_id != null
+  → 「子タスク」バッジを表示（薄いグレー系）
+
+origin_checklist_item_id != null（かつ parent_id != null）
+  → 「子タスク」バッジに加えて「切り出し」バッジを表示（薄いブルー系）
+```
+
+**2カラム時のクリック挙動**
+
+```typescript
+// lg以上: selectedTaskId を更新（ページ遷移しない）
+// lg未満: /tasks/[id] にページ遷移
+```
+
+---
+
+## 7. 実装上の注意点・既知の挙動
+
+### 7.1 日本語IME入力（isComposing）
 
 `@keydown.enter` で処理をトリガーするフォームでは、日本語変換確定の Enter と送信の Enter が競合する。`event.isComposing === true` の間はハンドラをスキップすることで対処する。
 
 ```typescript
 async function handleAdd(e?: KeyboardEvent) {
   if (e?.isComposing) return  // IME変換中は無視
-  // ...
 }
 ```
 
-対象コンポーネント：`ChecklistPanel.vue`（新規アイテム追加）、`ChecklistItem.vue`（テキスト編集確定）
+対象コンポーネント：`ChecklistPanel.vue`、`ChecklistItem.vue`
 
-### 5.2 チェックリストのインライン編集
-
-`ChecklistItem.vue` はテキストのインライン編集に対応している。
+### 7.2 チェックリストのインライン編集
 
 | 操作 | 動作 |
 |------|------|
 | テキストをダブルクリック | 編集モードに入る |
 | 鉛筆アイコンをクリック | 編集モードに入る |
-| Enter / フォーカスを外す | 変更を保存（`PATCH /tasks/{id}/checklist/{item_id}`） |
+| Enter / フォーカスを外す | 変更を保存 |
 | Esc | 編集キャンセル |
 
-切り出し済みアイテム（`extracted_task_id` あり）は編集不可。空文字または変更なしの場合はAPIを呼ばずにスキップする。
+切り出し済みアイテム（`extracted_task_id` あり）は編集不可。
 
-### 5.3 Docker開発環境でのHMR（Hot Module Replacement）
+### 7.3 Docker開発環境でのHMR
 
-macOS + Docker では inotify によるファイル変更検知が機能しないため、以下の設定でポーリングを有効にしている。
+macOS + Docker では inotify によるファイル変更検知が機能しないため、ポーリングを使用する。
 
 `nuxt.config.ts`:
+
 ```typescript
 vite: {
   server: {
@@ -463,18 +456,13 @@ vite: {
 }
 ```
 
-`docker-compose.dev.yml`:
-```yaml
-environment:
-  CHOKIDAR_USEPOLLING: "true"
-  WATCHPACK_POLLING: "true"
-```
-
 ---
 
-## 6. 次回スコープ
+## 8. 次回スコープ
 
 | 項目 | 優先度 | 内容 |
 |------|-------|------|
-| APIテスト | 中 | エンドポイント単位のテスト設計 |
-| サービス層ユニットテスト | 中 | FastAPIサービス層のロジックテスト |
+| 複数statusフィルタ | 高 | `status=todo&status=doing` の複数値送信対応（バックエンドと合わせて） |
+| 2カラムのスクロール独立 | 中 | 左右カラムで独立してスクロールできるよう overflow-y-auto を設定 |
+| タスク詳細の遅延ロード | 低 | 2カラム時は選択時に初めてAPIを叩く（初期ロードの節約） |
+| モバイル対応拡張 | 低 | スワイプジェスチャー等 |

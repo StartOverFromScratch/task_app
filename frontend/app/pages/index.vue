@@ -20,6 +20,7 @@ const STATUS_LABELS: Record<TaskStatus, string> = {
 const selectedStatuses = ref<TaskStatus[]>(['todo', 'doing'])
 const typeFilter = ref<TaskType | undefined>(undefined)
 const priorityFilter = ref<Priority | undefined>(undefined)
+const dueDateFilter = ref<'today_tomorrow' | 'all'>('today_tomorrow')
 
 const staleCount = ref(0)
 const carryoverCount = computed(() => carryoverStore.candidates.length)
@@ -45,6 +46,31 @@ const filteredTasks = computed(() => {
   let list = taskStore.tasks
   if (typeFilter.value) list = list.filter(t => t.task_type === typeFilter.value)
   if (priorityFilter.value) list = list.filter(t => t.priority === priorityFilter.value)
+  if (dueDateFilter.value !== 'all') {
+    const today = new Date()
+    today.setHours(23, 59, 59, 999)
+    const tomorrow = new Date(today)
+    tomorrow.setDate(tomorrow.getDate() + 1)
+
+    const baseTasks = list.filter(t => t.due_date != null && new Date(t.due_date) <= tomorrow)
+
+    if (baseTasks.length <= 3) {
+      const nextDate = list
+        .filter(t => t.due_date != null && new Date(t.due_date) > tomorrow)
+        .map(t => t.due_date!)
+        .sort()[0]
+
+      if (nextDate) {
+        const limit = new Date(nextDate)
+        limit.setHours(23, 59, 59, 999)
+        list = list.filter(t => t.due_date != null && new Date(t.due_date) <= limit)
+      } else {
+        list = baseTasks
+      }
+    } else {
+      list = baseTasks
+    }
+  }
   return list
 })
 
@@ -81,8 +107,8 @@ onMounted(async () => {
 <template>
   <div class="lg:flex lg:h-[calc(100vh-4rem)] lg:overflow-hidden">
     <!-- 左カラム（全幅 or 360px固定） -->
-    <div class="lg:w-[360px] lg:shrink-0 lg:overflow-y-auto lg:border-r border-default p-4">
-      <div class="flex items-center justify-between mb-6">
+    <div class="lg:w-[360px] lg:shrink-0 lg:overflow-y-auto lg:border-r border-default p-1">
+      <div class="flex items-center justify-between mb-6 space-y-1">
         <h1 class="text-2xl font-bold">
           タスク一覧
         </h1>
@@ -127,6 +153,20 @@ onMounted(async () => {
           @click="toggleStatus(s)"
         >
           {{ STATUS_LABELS[s] }}
+        </UButton>
+      </div>
+
+      <!-- 期限フィルタ -->
+      <div class="flex flex-wrap gap-1 mb-2">
+        <UButton
+          v-for="opt in [{ label: '今日・明日', value: 'today_tomorrow' }, { label: '全て', value: 'all' }]"
+          :key="opt.value"
+          size="xs"
+          :variant="dueDateFilter === opt.value ? 'solid' : 'ghost'"
+          color="neutral"
+          @click="dueDateFilter = opt.value as 'today_tomorrow' | 'all'"
+        >
+          {{ opt.label }}
         </UButton>
       </div>
 

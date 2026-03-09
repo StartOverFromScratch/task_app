@@ -13,6 +13,7 @@ const emit = defineEmits<{ select: [task: Task] }>()
     <UCard
       class="hover:bg-elevated/50 transition-colors"
       :class="{ 'ring-2 ring-primary': selected }"
+      :ui="{ body: 'p-3' }"
     >
       <div class="flex items-start gap-3">
         <div class="flex-1 min-w-0">
@@ -41,18 +42,20 @@ const emit = defineEmits<{ select: [task: Task] }>()
               size="sm"
             />
           </div>
-          <p class="font-medium">
+          <p class="text-xl font-medium">
             {{ task.title }}
           </p>
-          <p class="text-sm text-muted mt-0.5 truncate">
-            {{ task.done_criteria }}
-          </p>
-          <p
-            v-if="task.due_date"
-            class="text-xs text-muted mt-1"
-          >
-            期限: {{ formatDate(task.due_date) }}
-          </p>
+          <div class="flex items-center justify-between mt-0.5 gap-2">
+            <p class="text-sm text-muted truncate">
+              {{ task.done_criteria }}
+            </p>
+            <p
+              v-if="task.due_date"
+              class="text-xs text-muted shrink-0"
+            >
+              期限: {{ formatDate(task.due_date) }}
+            </p>
+          </div>
         </div>
         <UIcon
           name="i-lucide-chevron-right"

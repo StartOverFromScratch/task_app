@@ -16,6 +16,8 @@ import app.models.task  # noqa: F401
 import app.models.checklist_item  # noqa: F401
 import app.models.completion_log  # noqa: F401
 import app.models.capture_item  # noqa: F401
+import app.models.push_subscription  # noqa: F401
+import app.models.notification_setting  # noqa: F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_url)

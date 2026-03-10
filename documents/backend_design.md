@@ -1,10 +1,10 @@
 # タスク管理システム バックエンド設計書
 
-**バージョン:** v0.2
+**バージョン:** v0.3
 **対象:** バックエンド（FastAPI）
 **作成日:** 2026-02-25
-**更新日:** 2026-03-05
-**変更点:** `GET /tasks` にソートパラメータ（`sort_by` / `order`）を追加
+**更新日:** 2026-03-10
+**変更点（v0.3）:** プッシュ通知機能追加（VAPID / Web Push / APScheduler 定時通知）
 
 ---
 
@@ -143,6 +143,17 @@ P6 CaptureBox         → /captures/**
 | POST | `/captures` | キャプチャ登録 |
 | PATCH | `/captures/{id}` | 更新（解決済み・関連タスク紐付け） |
 | DELETE | `/captures/{id}` | 削除 |
+
+### P7：プッシュ通知（v0.3追加）
+
+| メソッド | パス | 説明 |
+|---|---|---|
+| GET | `/push/vapid-public-key` | VAPID 公開鍵取得 |
+| POST | `/push/subscribe` | 通知購読登録 |
+| DELETE | `/push/subscribe` | 通知購読解除 |
+| POST | `/push/send-today-due` | 今日期限のタスク通知（手動） |
+| GET | `/push/notification-setting` | 定時通知設定取得 |
+| PUT | `/push/notification-setting` | 定時通知設定更新 |
 
 ---
 
@@ -413,37 +424,45 @@ needs_redefine → status=needs_redefine
 
 ```
 backend/
-├── main.py
+├── main.py                      # lifespan でスケジューラ起動・停止
 ├── alembic.ini
 ├── alembic/
 │   ├── env.py
 │   └── versions/
-│         └── 001_create_initial_tables.py
+│         ├── 001_create_initial_tables.py
+│         └── 002_add_push_tables.py      # v0.3追加
 ├── app/
 │   ├── api/
 │   │     ├── tasks.py
 │   │     ├── checklist.py
 │   │     ├── captures.py
-│   │     └── carryover.py
+│   │     ├── carryover.py
+│   │     └── push.py                     # v0.3追加
 │   ├── models/
 │   │     ├── task.py
 │   │     ├── checklist_item.py
 │   │     ├── completion_log.py
-│   │     └── capture_item.py
+│   │     ├── capture_item.py
+│   │     ├── push_subscription.py        # v0.3追加
+│   │     └── notification_setting.py     # v0.3追加
 │   ├── schemas/
 │   │     ├── task.py
 │   │     ├── checklist_item.py
 │   │     ├── completion_log.py
-│   │     └── capture_item.py
+│   │     ├── capture_item.py
+│   │     ├── push.py                     # v0.3追加（PushSubscribeRequest 等）
+│   │     └── notification_setting.py     # v0.3追加
 │   ├── services/
 │   │     ├── task_service.py
 │   │     ├── carryover_service.py
-│   │     └── capture_service.py
+│   │     ├── capture_service.py
+│   │     ├── push_service.py             # v0.3追加（VAPID送信）
+│   │     └── scheduler.py               # v0.3追加（APScheduler 定時実行）
 │   ├── db/
 │   │     ├── base.py
 │   │     └── session.py
 │   └── core/
-│         └── config.py          # DATABASE_URL / CORS_ORIGINS / LOG_LEVEL / WORKERS
+│         └── config.py          # DATABASE_URL / CORS_ORIGINS / VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY
 └── tests/
       ├── test_tasks.py
       ├── test_carryover.py
@@ -463,7 +482,33 @@ api（ルーター）
 
 ## 6. マイグレーション設計
 
-スキーマ変更はAlembicで管理する。v0.2では新規テーブル・カラムの追加はなし（ソートはクエリレベルの変更のみ）。
+### v0.2
+ソートはクエリレベルの変更のみ（スキーマ変更なし）。
+
+### v0.3（プッシュ通知）
+
+新規テーブル `push_subscriptions` / `notification_settings` を追加。
+
+```sql
+-- push_subscriptions
+CREATE TABLE push_subscriptions (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    endpoint   TEXT NOT NULL UNIQUE,
+    p256dh     TEXT NOT NULL,
+    auth       TEXT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- notification_settings（シングルトン id=1）
+CREATE TABLE notification_settings (
+    id            INTEGER PRIMARY KEY,
+    notify_time_1 TEXT,          -- HH:MM 形式
+    notify_time_2 TEXT,          -- HH:MM 形式
+    enabled       BOOLEAN NOT NULL DEFAULT 0
+);
+```
+
+**注意：** Docker 環境で Alembic マイグレーションを実行する際は、マイグレーション後に `docker compose restart backend` が必要（スケジューラはアプリ起動時に通知設定を読み込むため）。
 
 ---
 
@@ -539,11 +584,79 @@ paths:
 
 ---
 
-## 8. 今後の課題
+## 8. プッシュ通知の設計詳細（v0.3）
+
+### VAPID 鍵管理
+
+- **形式：** base64url エンコードされた DER 形式（PEM 文字列は不可）
+- **生成：** `cryptography` ライブラリで EC 鍵を生成し `base64url(DER)` にエンコード
+- **保存：** `.env` の `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` に設定
+
+```python
+# backend/app/services/push_service.py の送信ロジック
+from pywebpush import webpush, WebPushException
+
+def send_push(sub: PushSubscription, title: str, body: str) -> bool:
+    try:
+        webpush(
+            subscription_info={"endpoint": sub.endpoint, "keys": {...}},
+            data=json.dumps({"title": title, "body": body}),
+            vapid_private_key=settings.vapid_private_key,  # base64url DER
+            vapid_claims={"sub": "mailto:admin@example.com"},
+        )
+        return True
+    except Exception:
+        return False
+```
+
+### スケジューラ（APScheduler）
+
+```python
+# backend/app/services/scheduler.py
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+
+scheduler = BackgroundScheduler(timezone="Asia/Tokyo")
+```
+
+- `main.py` の `lifespan` で `start_scheduler()` → DB から設定読み込み → `update_schedule()` → `stop_scheduler()`
+- `update_schedule(notify_time_1, notify_time_2, enabled)`: 既存ジョブ削除後、enabled=True なら新規登録
+- ジョブ ID: `daily_push_1` / `daily_push_2`
+- トリガー: `CronTrigger(hour=HH, minute=MM, timezone="Asia/Tokyo")`
+- `requirements.txt` に `apscheduler==3.11.0` 追加（Docker 再ビルドが必要）
+
+### 通知設定 API スキーマ
+
+**GET /push/notification-setting**
+
+```json
+{
+  "notify_time_1": "09:00",
+  "notify_time_2": "16:00",
+  "enabled": false
+}
+```
+
+**PUT /push/notification-setting（Request）**
+
+```json
+{
+  "notify_time_1": "09:00",
+  "notify_time_2": "16:00",
+  "enabled": true
+}
+```
+
+設定保存後は即座に `update_schedule()` が呼ばれ、スケジューラに反映される。
+
+---
+
+## 9. 今後の課題
 
 | 項目 | 優先度 | 内容 |
 |------|-------|------|
 | ソートのテスト追加 | 高 | `GET /tasks` のソートパラメータに対するテストケース追加 |
 | 複数statusフィルタ対応 | 中 | フロントから `status=todo&status=doing` のように複数値を渡せるようにする |
 | PostgreSQL移行 | 低 | NULLs LAST の挙動はDBによって差異があるため移行時に要確認 |
-| 認証 | 低 | JWT Bearer Token（v0.3以降） |
+| 認証 | 低 | JWT Bearer Token（v0.4以降） |
+| プッシュ通知テスト | 低 | push_service / scheduler の単体テスト追加 |

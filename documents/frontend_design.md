@@ -1,6 +1,12 @@
 # タスク管理システム フロントエンド設計書
 
-作成日: 2026-02-26 | バージョン: 1.4 | 最終更新: 2026-03-10
+作成日: 2026-02-26 | バージョン: 1.5 | 最終更新: 2026-03-10
+
+> v1.4 → v1.5 変更点：
+> - プッシュ通知機能追加（`usePushNotification.ts`、`/public/sw.js`）
+> - タスク一覧：ベルアイコンで通知ON/OFF切り替え・紙飛行機アイコンで手動送信
+> - 通知設定画面 `/settings` 追加（定時通知有効/無効・通知時刻×2）
+> - `app.vue`：ナビゲーションにギアアイコン（設定リンク）追加
 
 > v1.3 → v1.4 変更点：
 > - タスク一覧：スリープ防止トグルボタン追加（Screen Wake Lock API）
@@ -52,7 +58,8 @@ frontend/
 │   │       └── edit.vue          # タスク編集
 │   ├── carryover.vue             # 繰り越し候補一覧
 │   ├── stale.vue                 # 放置タスク一覧
-│   └── capture.vue               # CaptureBox
+│   ├── capture.vue               # CaptureBox
+│   └── settings.vue              # 通知設定（定時プッシュ通知）
 │
 ├── components/
 │   ├── task/
@@ -77,7 +84,9 @@ frontend/
 │   ├── useChecklist.ts
 │   ├── useCarryover.ts
 │   ├── useStale.ts
-│   └── useCapture.ts
+│   ├── useCapture.ts
+│   ├── useWakeLock.ts            # Screen Wake Lock API ラッパー
+│   └── usePushNotification.ts   # Web Push 通知（購読・解除・手動送信）
 │
 ├── stores/
 │   ├── taskStore.ts              # selectedTaskId 追加
@@ -97,10 +106,13 @@ frontend/
 │   ├── carryover.ts
 │   └── capture.ts
 │
-└── utils/
-    ├── staleThreshold.ts
-    ├── dateFormat.ts
-    └── apiBase.ts
+├── utils/
+│   ├── staleThreshold.ts
+│   ├── dateFormat.ts
+│   └── apiBase.ts
+│
+└── public/
+    └── sw.js                     # Service Worker（push イベント処理・通知表示）
 ```
 
 ---
@@ -177,6 +189,7 @@ actions: {
 | 繰り越し候補 | `/carryover` | 期限超過タスクの処理 |
 | 放置タスク | `/stale` | 放置タスクへの対応 |
 | CaptureBox | `/capture` | 分岐論点一覧・解決済み管理 |
+| 通知設定 | `/settings` | プッシュ通知の定時設定（v1.5追加） |
 
 ---
 
@@ -188,7 +201,7 @@ actions: {
 
 ```
 ┌─────────────────────────────────────────┐
-│  タスク一覧          [+ 新規作成]        │
+│  タスク一覧   [🌙] [🔔] [✈] [+ 新規]   │  ← スリープ防止/ベル/紙飛行機(購読時のみ)
 │  ─────────────────────────────────────  │
 │  [未完了/進行中▼] タイプ▼  優先度▼      │  ← デフォルト: todo/doing
 │  [今日・明日] [全て]                    │  ← 期限フィルタ（デフォルト: 今日・明日）
@@ -346,6 +359,34 @@ actions: {
 
 ---
 
+### 4.8 通知設定画面 `/settings`（v1.5追加）
+
+```
+┌─────────────────────────────────────────┐
+│  通知設定                               │
+│  ─────────────────────────────────────  │
+│  ┌─────────────────────────────────┐   │
+│  │  定時通知                        │   │
+│  │  毎日指定した時刻に今日期限の    │   │
+│  │  タスクをプッシュ通知します      │   │
+│  │                                  │   │
+│  │  [定時通知を有効にする  ○──]     │   │  ← USwitch
+│  │                                  │   │
+│  │  通知時刻 1  [09:00]             │   │  ← <input type="time">
+│  │  通知時刻 2  [16:00]             │   │  ← <input type="time">
+│  │                                  │   │
+│  │  [         保存          ]       │   │
+│  └─────────────────────────────────┘   │
+│  ※ プッシュ通知の受信には通知許可が必要  │
+└─────────────────────────────────────────┘
+```
+
+- マウント時に `GET /push/notification-setting` で現在の設定を読み込む
+- 保存ボタンで `PUT /push/notification-setting` を呼び出す
+- 通知時刻は常に表示（enabled の有無に依らない）
+
+---
+
 ## 5. composables 仕様
 
 ### useTask.ts（v1.2更新）
@@ -421,6 +462,46 @@ origin_checklist_item_id != null（かつ parent_id != null）
 
 ---
 
+### usePushNotification.ts（v1.5追加）
+
+```typescript
+// Web Push API（Service Worker + VAPID）のラッパー
+
+export function usePushNotification() {
+  const isSubscribed = ref(false)
+
+  async function subscribe(): Promise<void>
+  // 1. navigator.serviceWorker.register('/sw.js')
+  // 2. GET /push/vapid-public-key
+  // 3. registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey })
+  // 4. POST /push/subscribe (endpoint, keys.p256dh, keys.auth)
+
+  async function unsubscribe(): Promise<void>
+  // 1. DELETE /push/subscribe (エラーは無視)
+  // 2. pushSubscription.unsubscribe()
+
+  async function sendTodayDue(): Promise<void>
+  // POST /push/send-today-due
+
+  return { isSubscribed, subscribe, unsubscribe, sendTodayDue }
+}
+```
+
+**制約事項：**
+- **HTTPS 必須**（Service Worker は http://localhost のみ例外）
+- `urlBase64ToUint8Array` は ArrayBuffer を返す（Uint8Array より型互換性が高い）
+- 通知許可はブラウザのダイアログで行う（アプリ内UIなし）
+
+**タスク一覧ヘッダーのアイコン：**
+
+| アイコン | 役割 | 表示条件 |
+|---------|------|---------|
+| `i-lucide-bell-off` | 未購読（クリックで購読） | 常に表示 |
+| `i-lucide-bell` | 購読済み（クリックで解除） | 購読中のみ |
+| `i-lucide-send` | 今日期限のタスクを今すぐ通知 | 購読中のみ |
+
+---
+
 ## 7. 実装上の注意点・既知の挙動
 
 ### 7.1 日本語IME入力（isComposing）
@@ -465,7 +546,28 @@ async function handleAdd(e?: KeyboardEvent) {
 { isActive: Ref<boolean>, isSupported: Ref<boolean>, toggle: () => Promise<void> }
 ```
 
-### 7.4 Docker開発環境でのHMR
+### 7.4 プッシュ通知（Web Push / VAPID）
+
+- HTTPS 必須（localhost は例外）。LAN IP（http://192.168.x.x）は動作不可
+- Nuxt UI v4 は `UToggle` 廃止 → `USwitch` を使用
+- Service Worker は `frontend/public/sw.js` に配置（Nuxt の static ファイルとして提供）
+- `sw.js` は `push` イベントでトーストを表示、`notificationclick` で `/` を開く
+
+```javascript
+// sw.js の主要ロジック
+self.addEventListener('push', (event) => {
+  const data = event.data?.json() ?? {}
+  event.waitUntil(
+    self.registration.showNotification(data.title, { body: data.body })
+  )
+})
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+  event.waitUntil(clients.openWindow('/'))
+})
+```
+
+### 7.5 Docker開発環境でのHMR
 
 macOS + Docker では inotify によるファイル変更検知が機能しないため、ポーリングを使用する。
 

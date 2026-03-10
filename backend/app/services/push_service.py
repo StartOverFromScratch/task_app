@@ -42,8 +42,10 @@ def send_push(subscription: PushSubscription, title: str, body: str) -> bool:
             vapid_private_key=settings.vapid_private_key,
             vapid_claims={"sub": settings.vapid_mailto},
         )
+        print(f"[push] sent OK: endpoint={subscription.endpoint[:40]}...", flush=True)
         return True
-    except Exception:
+    except Exception as e:
+        print(f"[push] send FAILED: endpoint={subscription.endpoint[:40]}... error={e}", flush=True)
         return False
 
 

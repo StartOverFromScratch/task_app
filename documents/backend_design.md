@@ -1,9 +1,10 @@
 # タスク管理システム バックエンド設計書
 
-**バージョン:** v0.3
+**バージョン:** v0.4
 **対象:** バックエンド（FastAPI）
 **作成日:** 2026-02-25
 **更新日:** 2026-03-10
+**変更点（v0.4）:** プッシュ通知の不具合修正（VAPID 環境変数・スケジューラログ・エラー可視化）
 **変更点（v0.3）:** プッシュ通知機能追加（VAPID / Web Push / APScheduler 定時通知）
 
 ---
@@ -648,6 +649,37 @@ scheduler = BackgroundScheduler(timezone="Asia/Tokyo")
 ```
 
 設定保存後は即座に `update_schedule()` が呼ばれ、スケジューラに反映される。
+
+### v0.4 修正内容（不具合修正）
+
+**1. VAPID 環境変数の欠落（`config.py` / `docker-compose.dev.yml`）**
+
+`Settings` クラスに `vapid_public_key` / `vapid_private_key` / `vapid_mailto` フィールドが未定義だったため、`send_push()` が `AttributeError` で失敗していた。
+
+```python
+# app/core/config.py に追加
+vapid_public_key: str = ""
+vapid_private_key: str = ""
+vapid_mailto: str = "mailto:admin@localhost"
+```
+
+`docker-compose.dev.yml` の backend 環境変数にも追加が必要（コンテナ再作成で反映）：
+
+```yaml
+VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+VAPID_MAILTO: ${VAPID_MAILTO:-mailto:admin@localhost}
+```
+
+**注意：** `docker compose restart` では環境変数は更新されない。`docker compose up -d --no-deps backend` で再作成すること。
+
+**2. スケジューラのログ出力（`scheduler.py`）**
+
+uvicorn の子プロセスでは Python `logging` モジュールのハンドラが引き継がれないため、`logger.info()` が出力されなかった。`print(flush=True)` に変更して解決。
+
+**3. `send_push()` のエラー可視化**
+
+`except Exception` で例外を握りつぶしていたため障害原因が不明だった。`print()` でエラー内容を出力するよう修正。
 
 ---
 

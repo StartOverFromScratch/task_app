@@ -1,6 +1,12 @@
 # タスク管理システム フロントエンド設計書
 
-作成日: 2026-02-26 | バージョン: 1.5 | 最終更新: 2026-03-10
+作成日: 2026-02-26 | バージョン: 1.6 | 最終更新: 2026-03-10
+
+> v1.5 → v1.6 変更点：
+> - `sw.js`：`skipWaiting` / `clients.claim()` 追加（更新時の即時反映）
+> - `sw.js`：`requireInteraction: true` 追加（macOS でバナー表示を促進）
+> - `sw.js`：icon 指定を削除（存在しないアイコンによる通知失敗を防止）
+> - `usePushNotification.ts` 復元（scheduled_notification ブランチに欠落していた）
 
 > v1.4 → v1.5 変更点：
 > - プッシュ通知機能追加（`usePushNotification.ts`、`/public/sw.js`）
@@ -551,21 +557,38 @@ async function handleAdd(e?: KeyboardEvent) {
 - HTTPS 必須（localhost は例外）。LAN IP（http://192.168.x.x）は動作不可
 - Nuxt UI v4 は `UToggle` 廃止 → `USwitch` を使用
 - Service Worker は `frontend/public/sw.js` に配置（Nuxt の static ファイルとして提供）
-- `sw.js` は `push` イベントでトーストを表示、`notificationclick` で `/` を開く
+- `sw.js` は `push` イベントで OS 通知を表示、`notificationclick` で `/` を開く
 
 ```javascript
-// sw.js の主要ロジック
+// sw.js の全ロジック
+self.addEventListener('install', () => self.skipWaiting())
+self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()))
+
 self.addEventListener('push', (event) => {
-  const data = event.data?.json() ?? {}
+  const data = event.data ? event.data.json() : { title: '通知', body: '' }
   event.waitUntil(
-    self.registration.showNotification(data.title, { body: data.body })
+    self.registration.showNotification(data.title, {
+      body: data.body,
+      requireInteraction: true,  // macOS でバナー表示を促進
+    })
   )
 })
+
 self.addEventListener('notificationclick', (event) => {
   event.notification.close()
   event.waitUntil(clients.openWindow('/'))
 })
 ```
+
+**SW 更新時の注意点：**
+- `skipWaiting()` により SW 更新が即時反映される（waiting 状態にならない）
+- `clients.claim()` により既存タブも新 SW の管理下に入る
+- icon を指定しない（存在しないファイルを指定すると一部 Chrome バージョンで通知が表示されない）
+
+**macOS での通知バナー表示について：**
+- システム設定 → 通知 → Google Chrome → スタイルを「バナー」または「通知パネル」に設定必要
+- `requireInteraction: true` を設定することで Chrome on macOS でのバナー表示を促進
+- macOS Sonoma + Chrome の組み合わせで、通知センターのみ表示になる場合がある（OS/ブラウザ側の制約）
 
 ### 7.5 Docker開発環境でのHMR
 

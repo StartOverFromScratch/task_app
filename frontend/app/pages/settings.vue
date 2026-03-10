@@ -55,16 +55,13 @@ async function save() {
           <p class="text-xs text-muted mb-3">
             毎日指定した時刻に、今日期限のタスクをプッシュ通知します
           </p>
-          <UToggle
+          <USwitch
             v-model="enabled"
             label="定時通知を有効にする"
           />
         </div>
 
-        <div
-          v-if="enabled"
-          class="space-y-4"
-        >
+        <div class="space-y-4">
           <div>
             <p class="text-sm font-medium mb-1">
               通知時刻 1

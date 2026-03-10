@@ -6,6 +6,9 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000"
     log_level: str = "INFO"
     workers: int = 1
+    vapid_public_key: str = ""
+    vapid_private_key: str = ""
+    vapid_mailto: str = "mailto:admin@localhost"
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

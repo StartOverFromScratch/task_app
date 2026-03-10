@@ -4,6 +4,8 @@ sqlalchemy==2.0.38
 alembic==1.14.1
 pydantic==2.10.6
 pydantic-settings==2.8.0
+pywebpush==2.3.0
+apscheduler==3.11.0
 
 # testing
 pytest==8.3.5

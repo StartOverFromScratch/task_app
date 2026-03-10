@@ -41,6 +41,12 @@ useSeoMeta({ title: 'タスク管理' })
         >
           Capture
         </UButton>
+        <UButton
+          to="/settings"
+          variant="ghost"
+          color="neutral"
+          icon="i-lucide-settings"
+        />
         <UColorModeButton />
       </template>
     </UHeader>

@@ -5,10 +5,15 @@ from app.core.config import settings
 from app.db.session import get_db
 from app.models.notification_setting import NotificationSetting
 from app.models.push_subscription import PushSubscription
-from app.schemas.notification_setting import NotificationSettingResponse, NotificationSettingUpdate
+from app.schemas.notification_setting import (
+    DEFAULT_NOTIFY_TIME_1,
+    DEFAULT_NOTIFY_TIME_2,
+    NotificationSettingResponse,
+    NotificationSettingUpdate,
+)
 from app.schemas.push import PushSubscribeRequest, PushSendRequest
 from app.services import push_service
-from app.services.scheduler import update_schedule
+from app.services.scheduler import update_schedule  # noqa: E402
 
 router = APIRouter()
 
@@ -51,21 +56,40 @@ def send_today_due(db: Session = Depends(get_db)):
 def get_notification_setting(db: Session = Depends(get_db)):
     setting = db.query(NotificationSetting).filter(NotificationSetting.id == 1).first()
     if not setting:
-        return NotificationSettingResponse(notify_time=None, enabled=False)
-    return NotificationSettingResponse(notify_time=setting.notify_time, enabled=setting.enabled)
+        # 初期デフォルト値を返す
+        return NotificationSettingResponse(
+            notify_time_1=DEFAULT_NOTIFY_TIME_1,
+            notify_time_2=DEFAULT_NOTIFY_TIME_2,
+            enabled=False,
+        )
+    return NotificationSettingResponse(
+        notify_time_1=setting.notify_time_1 or DEFAULT_NOTIFY_TIME_1,
+        notify_time_2=setting.notify_time_2 or DEFAULT_NOTIFY_TIME_2,
+        enabled=setting.enabled,
+    )
 
 
 @router.put("/notification-setting", response_model=NotificationSettingResponse)
 def update_notification_setting(req: NotificationSettingUpdate, db: Session = Depends(get_db)):
     setting = db.query(NotificationSetting).filter(NotificationSetting.id == 1).first()
     if setting:
-        setting.notify_time = req.notify_time
+        setting.notify_time_1 = req.notify_time_1
+        setting.notify_time_2 = req.notify_time_2
         setting.enabled = req.enabled
     else:
-        setting = NotificationSetting(id=1, notify_time=req.notify_time, enabled=req.enabled)
+        setting = NotificationSetting(
+            id=1,
+            notify_time_1=req.notify_time_1,
+            notify_time_2=req.notify_time_2,
+            enabled=req.enabled,
+        )
         db.add(setting)
     db.commit()
     db.refresh(setting)
 
-    update_schedule(setting.notify_time, setting.enabled)
-    return NotificationSettingResponse(notify_time=setting.notify_time, enabled=setting.enabled)
+    update_schedule(setting.notify_time_1, setting.notify_time_2, setting.enabled)
+    return NotificationSettingResponse(
+        notify_time_1=setting.notify_time_1,
+        notify_time_2=setting.notify_time_2,
+        enabled=setting.enabled,
+    )

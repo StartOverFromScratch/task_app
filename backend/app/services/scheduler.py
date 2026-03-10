@@ -5,7 +5,8 @@ from app.db.session import SessionLocal
 from app.services.push_service import send_today_due_notification
 
 scheduler = BackgroundScheduler(timezone="Asia/Tokyo")
-JOB_ID = "daily_push"
+JOB_ID_1 = "daily_push_1"
+JOB_ID_2 = "daily_push_2"
 
 
 def _run_daily_push():
@@ -16,17 +17,26 @@ def _run_daily_push():
         db.close()
 
 
-def update_schedule(notify_time: str | None, enabled: bool):
-    scheduler.remove_job(JOB_ID) if scheduler.get_job(JOB_ID) else None
+def _add_job(job_id: str, notify_time: str):
+    hour, minute = notify_time.split(":")
+    scheduler.add_job(
+        _run_daily_push,
+        CronTrigger(hour=int(hour), minute=int(minute), timezone="Asia/Tokyo"),
+        id=job_id,
+        replace_existing=True,
+    )
 
-    if enabled and notify_time:
-        hour, minute = notify_time.split(":")
-        scheduler.add_job(
-            _run_daily_push,
-            CronTrigger(hour=int(hour), minute=int(minute), timezone="Asia/Tokyo"),
-            id=JOB_ID,
-            replace_existing=True,
-        )
+
+def update_schedule(notify_time_1: str | None, notify_time_2: str | None, enabled: bool):
+    for job_id in (JOB_ID_1, JOB_ID_2):
+        if scheduler.get_job(job_id):
+            scheduler.remove_job(job_id)
+
+    if enabled:
+        if notify_time_1:
+            _add_job(JOB_ID_1, notify_time_1)
+        if notify_time_2:
+            _add_job(JOB_ID_2, notify_time_2)
 
 
 def start_scheduler():

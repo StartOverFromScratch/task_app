@@ -17,8 +17,8 @@ async def lifespan(app: FastAPI):
     db = SessionLocal()
     try:
         setting = db.query(NotificationSetting).filter(NotificationSetting.id == 1).first()
-        if setting and setting.enabled and setting.notify_time:
-            update_schedule(setting.notify_time, setting.enabled)
+        if setting and setting.enabled:
+            update_schedule(setting.notify_time_1, setting.notify_time_2, setting.enabled)
     finally:
         db.close()
     yield

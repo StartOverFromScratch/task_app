@@ -2,16 +2,18 @@
 const apiBase = useApiBase()
 const toast = useToast()
 
-const notifyTime = ref<string>('')
+const notifyTime1 = ref('09:00')
+const notifyTime2 = ref('16:00')
 const enabled = ref(false)
 const loading = ref(false)
 
 onMounted(async () => {
   try {
-    const res = await $fetch<{ notify_time: string | null; enabled: boolean }>(
+    const res = await $fetch<{ notify_time_1: string | null; notify_time_2: string | null; enabled: boolean }>(
       `${apiBase}/push/notification-setting`
     )
-    notifyTime.value = res.notify_time ?? ''
+    notifyTime1.value = res.notify_time_1 ?? '09:00'
+    notifyTime2.value = res.notify_time_2 ?? '16:00'
     enabled.value = res.enabled
   } catch {
     toast.add({ title: '設定の読み込みに失敗しました', color: 'error' })
@@ -24,7 +26,8 @@ async function save() {
     await $fetch(`${apiBase}/push/notification-setting`, {
       method: 'PUT',
       body: {
-        notify_time: notifyTime.value || null,
+        notify_time_1: notifyTime1.value || null,
+        notify_time_2: notifyTime2.value || null,
         enabled: enabled.value,
       },
     })
@@ -58,20 +61,34 @@ async function save() {
           />
         </div>
 
-        <div v-if="enabled">
-          <p class="text-sm font-medium mb-2">
-            通知時刻
-          </p>
-          <input
-            v-model="notifyTime"
-            type="time"
-            class="border border-default rounded-md px-3 py-2 text-sm bg-background text-foreground w-full"
-          >
+        <div
+          v-if="enabled"
+          class="space-y-4"
+        >
+          <div>
+            <p class="text-sm font-medium mb-1">
+              通知時刻 1
+            </p>
+            <input
+              v-model="notifyTime1"
+              type="time"
+              class="border border-default rounded-md px-3 py-2 text-sm bg-background text-foreground w-full"
+            >
+          </div>
+          <div>
+            <p class="text-sm font-medium mb-1">
+              通知時刻 2
+            </p>
+            <input
+              v-model="notifyTime2"
+              type="time"
+              class="border border-default rounded-md px-3 py-2 text-sm bg-background text-foreground w-full"
+            >
+          </div>
         </div>
 
         <UButton
           :loading="loading"
-          :disabled="enabled && !notifyTime"
           block
           @click="save"
         >

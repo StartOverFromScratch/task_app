@@ -6,6 +6,7 @@ const { fetchCandidates } = useCarryover()
 const taskStore = useTaskStore()
 const carryoverStore = useCarryoverStore()
 const router = useRouter()
+const { isActive: wakeLockActive, isSupported: wakeLockSupported, toggle: toggleWakeLock } = useWakeLock()
 
 const ALL_STATUSES: TaskStatus[] = ['todo', 'doing', 'done', 'carryover_candidate', 'needs_redefine', 'snoozed']
 const STATUS_LABELS: Record<TaskStatus, string> = {
@@ -112,13 +113,24 @@ onMounted(async () => {
         <h1 class="text-2xl font-bold">
           タスク一覧
         </h1>
-        <UButton
-          to="/tasks/new"
-          icon="i-lucide-plus"
-          size="sm"
-        >
-          新規作成
-        </UButton>
+        <div class="flex items-center gap-2">
+          <UButton
+            v-if="wakeLockSupported"
+            :icon="wakeLockActive ? 'i-lucide-sun' : 'i-lucide-moon'"
+            size="sm"
+            :variant="wakeLockActive ? 'solid' : 'ghost'"
+            :color="wakeLockActive ? 'warning' : 'neutral'"
+            :title="wakeLockActive ? 'スリープ防止中' : 'スリープ防止OFF'"
+            @click="toggleWakeLock"
+          />
+          <UButton
+            to="/tasks/new"
+            icon="i-lucide-plus"
+            size="sm"
+          >
+            新規作成
+          </UButton>
+        </div>
       </div>
 
       <div class="flex flex-wrap gap-2 mb-4">

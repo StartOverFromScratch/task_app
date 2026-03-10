@@ -1,6 +1,10 @@
 # タスク管理システム フロントエンド設計書
 
-作成日: 2026-02-26 | バージョン: 1.3 | 最終更新: 2026-03-09
+作成日: 2026-02-26 | バージョン: 1.4 | 最終更新: 2026-03-10
+
+> v1.3 → v1.4 変更点：
+> - タスク一覧：スリープ防止トグルボタン追加（Screen Wake Lock API）
+> - `useWakeLock.ts` composable 追加
 
 > v1.2 → v1.3 変更点：
 > - TaskCard.vue：タスク名フォントサイズを `text-2xl` に拡大
@@ -442,7 +446,26 @@ async function handleAdd(e?: KeyboardEvent) {
 
 切り出し済みアイテム（`extracted_task_id` あり）は編集不可。
 
-### 7.3 Docker開発環境でのHMR
+### 7.3 スリープ防止（Wake Lock）
+
+`useWakeLock.ts` composable で Screen Wake Lock API をラップ。タスク一覧画面のヘッダーにトグルボタンを配置する。
+
+| 状態 | アイコン | 色 |
+|------|---------|-----|
+| OFF | 月（i-lucide-moon） | neutral / ghost |
+| ON | 太陽（i-lucide-sun） | warning / solid |
+
+**制約事項：**
+- **HTTPS 必須**。`http://` でのアクセス（LAN IP 経由など）では `navigator.wakeLock` が利用不可
+- 非対応環境ではトーストで「このブラウザはスリープ防止に対応していません」を表示
+- ページ離脱時（`onUnmounted`）に自動解除
+
+```typescript
+// useWakeLock.ts の返り値
+{ isActive: Ref<boolean>, isSupported: Ref<boolean>, toggle: () => Promise<void> }
+```
+
+### 7.4 Docker開発環境でのHMR
 
 macOS + Docker では inotify によるファイル変更検知が機能しないため、ポーリングを使用する。
 

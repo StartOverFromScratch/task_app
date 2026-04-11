@@ -6,7 +6,13 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./backend:/app
+      - ./backend/app:/app/app
+      - ./backend/main.py:/app/main.py
+      - ./backend/tasks.db:/app/tasks.db
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     environment:
       DATABASE_URL: ${DATABASE_URL:-sqlite:///./tasks.db}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}

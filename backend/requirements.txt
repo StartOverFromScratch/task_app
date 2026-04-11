@@ -1,5 +1,6 @@
 fastapi==0.115.8
 uvicorn==0.34.0
+watchfiles==1.0.5
 sqlalchemy==2.0.38
 alembic==1.14.1
 pydantic==2.10.6

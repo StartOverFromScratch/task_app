@@ -17,9 +17,8 @@ const emit = defineEmits<{ select: [task: Task] }>()
     >
       <div class="flex items-start gap-3">
         <div class="flex-1 min-w-0">
-          <div class="flex flex-wrap items-center gap-1.5 mb-1">
+          <div class="flex items-center gap-1.5 mb-1">
             <TaskTypeBadge :type="task.task_type" />
-            <TaskStatusBadge :status="task.status" />
             <UBadge
               v-if="task.priority === 'must'"
               label="must"
@@ -27,22 +26,10 @@ const emit = defineEmits<{ select: [task: Task] }>()
               variant="subtle"
               size="sm"
             />
-            <UBadge
-              v-if="task.parent_id != null"
-              label="子タスク"
-              color="neutral"
-              variant="subtle"
-              size="sm"
-            />
-            <UBadge
-              v-if="task.origin_checklist_item_id != null"
-              label="切り出し"
-              color="info"
-              variant="subtle"
-              size="sm"
-            />
+            <div class="flex-1" />
+            <TaskStatusBadge :status="task.status" />
           </div>
-          <p class="text-xl font-medium">
+          <p class="text-base font-semibold truncate">
             {{ task.title }}
           </p>
           <div class="flex items-center justify-between mt-0.5 gap-2">

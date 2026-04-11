@@ -1,83 +1,88 @@
 <script setup lang="ts">
-import type { Task, TaskStatus, TaskType, Priority } from '~/types/task'
+import type { Task } from '~/types/task'
+import type { NavItem } from '~/composables/useNavItems'
 
 const { fetchTasks, fetchTask } = useTask()
 const { fetchCandidates } = useCarryover()
 const taskStore = useTaskStore()
 const carryoverStore = useCarryoverStore()
 const router = useRouter()
-const { isActive: wakeLockActive, isSupported: wakeLockSupported, toggle: toggleWakeLock } = useWakeLock()
-const { isSubscribed: pushSubscribed, isSupported: pushSupported, toggle: togglePush, sendTodayDue } = usePushNotification()
+const { NAV_ITEMS } = useNavItems()
 
-const ALL_STATUSES: TaskStatus[] = ['todo', 'doing', 'done', 'carryover_candidate', 'needs_redefine', 'snoozed']
-const STATUS_LABELS: Record<TaskStatus, string> = {
-  todo: '未着手',
-  doing: '進行中',
-  done: '完了',
-  carryover_candidate: '繰越候補',
-  needs_redefine: '要再定義',
-  snoozed: '保留'
-}
+// ナビ選択状態
+const selectedNavKey = ref<string>('today')
 
-const selectedStatuses = ref<TaskStatus[]>(['todo', 'doing'])
-const typeFilter = ref<TaskType | undefined>(undefined)
-const priorityFilter = ref<Priority | undefined>(undefined)
-const dueDateFilter = ref<'today_tomorrow' | 'all'>('today_tomorrow')
+// モバイル表示状態（'nav' = ナビのみ, 'list' = リスト表示）
+const mobileView = ref<'nav' | 'list'>('nav')
 
+// 放置タスク件数
 const staleCount = ref(0)
 const carryoverCount = computed(() => carryoverStore.candidates.length)
 
-function toggleStatus(s: TaskStatus) {
-  if (selectedStatuses.value.includes(s)) {
-    selectedStatuses.value = selectedStatuses.value.filter(x => x !== s)
-  } else {
-    selectedStatuses.value = [...selectedStatuses.value, s]
-  }
-  loadTasks()
-}
-
-async function loadTasks() {
-  await fetchTasks({
-    status: selectedStatuses.value.length > 0 ? selectedStatuses.value : undefined,
-    sort_by: 'due_date',
-    order: 'asc'
-  })
-}
-
-const filteredTasks = computed(() => {
-  let list = taskStore.tasks
-  if (typeFilter.value) list = list.filter(t => t.task_type === typeFilter.value)
-  if (priorityFilter.value) list = list.filter(t => t.priority === priorityFilter.value)
-  if (dueDateFilter.value !== 'all') {
-    const today = new Date()
-    today.setHours(23, 59, 59, 999)
-    const tomorrow = new Date(today)
-    tomorrow.setDate(tomorrow.getDate() + 1)
-
-    const baseTasks = list.filter(t => t.due_date != null && new Date(t.due_date) <= tomorrow)
-
-    if (baseTasks.length <= 3) {
-      const nextDate = list
-        .filter(t => t.due_date != null && new Date(t.due_date) > tomorrow)
-        .map(t => t.due_date!)
-        .sort()[0]
-
-      if (nextDate) {
-        const limit = new Date(nextDate)
-        limit.setHours(23, 59, 59, 999)
-        list = list.filter(t => t.due_date != null && new Date(t.due_date) <= limit)
-      } else {
-        list = baseTasks
-      }
-    } else {
-      list = baseTasks
-    }
-  }
-  return list
-})
-
 function isLargeScreen(): boolean {
   return typeof window !== 'undefined' && window.innerWidth >= 1024
+}
+
+// 現在のナビキーに応じたフィルタパラメータを返す
+function getParams(navKey: string) {
+  const item = NAV_ITEMS.find(n => n.key === navKey)
+  if (!item || !item.filter) return { sort_by: 'due_date' as const, order: 'asc' as const }
+  return {
+    status: item.filter.statuses,
+    sort_by: 'due_date' as const,
+    order: 'asc' as const
+  }
+}
+
+async function loadTasks(navKey?: string) {
+  await fetchTasks(getParams(navKey ?? selectedNavKey.value))
+}
+
+// 今日・明日フィルタ + 自動拡張ロジック
+const filteredTasks = computed(() => {
+  const item = NAV_ITEMS.find(n => n.key === selectedNavKey.value)
+  if (!item?.filter?.dueDateLimit) return taskStore.tasks
+
+  const list = taskStore.tasks
+  const today = new Date()
+  today.setHours(23, 59, 59, 999)
+  const tomorrow = new Date(today)
+  tomorrow.setDate(tomorrow.getDate() + 1)
+
+  const baseTasks = list.filter(t => t.due_date != null && new Date(t.due_date) <= tomorrow)
+
+  if (baseTasks.length <= 3) {
+    const nextDate = list
+      .filter(t => t.due_date != null && new Date(t.due_date) > tomorrow)
+      .map(t => t.due_date!)
+      .sort()[0]
+
+    if (nextDate) {
+      const limit = new Date(nextDate)
+      limit.setHours(23, 59, 59, 999)
+      return list.filter(t => t.due_date != null && new Date(t.due_date) <= limit)
+    }
+    return baseTasks
+  }
+  return baseTasks
+})
+
+// 現在選択中ナビのラベル
+const selectedNavLabel = computed(() => {
+  return NAV_ITEMS.find(n => n.key === selectedNavKey.value)?.label ?? ''
+})
+
+async function handleNavSelect(item: NavItem) {
+  if (item.to) {
+    router.push(item.to)
+    return
+  }
+  selectedNavKey.value = item.key
+  taskStore.selectTask(null)
+  if (!isLargeScreen()) {
+    mobileView.value = 'list'
+  }
+  await loadTasks(item.key)
 }
 
 async function handleTaskSelect(task: Task) {
@@ -96,6 +101,11 @@ async function handleDetailRefresh() {
   await loadTasks()
 }
 
+function handleBack() {
+  mobileView.value = 'nav'
+  taskStore.selectTask(null)
+}
+
 onMounted(async () => {
   await loadTasks()
   await fetchCandidates()
@@ -108,51 +118,13 @@ onMounted(async () => {
 
 <template>
   <div class="lg:flex lg:h-[calc(100vh-4rem)] lg:overflow-hidden">
-    <!-- 左カラム（全幅 or 360px固定） -->
-    <div class="lg:w-[360px] lg:shrink-0 lg:overflow-y-auto lg:border-r border-default p-1">
-      <div class="flex items-center justify-between mb-6 space-y-1">
-        <h1 class="text-2xl font-bold">
-          タスク一覧
-        </h1>
-        <div class="flex items-center gap-2">
-          <UButton
-            v-if="wakeLockSupported"
-            :icon="wakeLockActive ? 'i-lucide-sun' : 'i-lucide-moon'"
-            size="sm"
-            :variant="wakeLockActive ? 'solid' : 'ghost'"
-            :color="wakeLockActive ? 'warning' : 'neutral'"
-            :title="wakeLockActive ? 'スリープ防止中' : 'スリープ防止OFF'"
-            @click="toggleWakeLock"
-          />
-          <UButton
-            v-if="pushSupported"
-            :icon="pushSubscribed ? 'i-lucide-bell' : 'i-lucide-bell-off'"
-            size="sm"
-            :variant="pushSubscribed ? 'solid' : 'ghost'"
-            :color="pushSubscribed ? 'primary' : 'neutral'"
-            :title="pushSubscribed ? '通知ON' : '通知OFF'"
-            @click="togglePush"
-          />
-          <UButton
-            v-if="pushSubscribed"
-            icon="i-lucide-send"
-            size="sm"
-            variant="ghost"
-            color="neutral"
-            title="今日の期限タスクを今すぐ通知"
-            @click="sendTodayDue"
-          />
-          <UButton
-            to="/tasks/new"
-            icon="i-lucide-plus"
-            size="sm"
-          >
-            新規作成
-          </UButton>
-        </div>
-      </div>
-
-      <div class="flex flex-wrap gap-2 mb-4">
+    <!-- 左カラム: AppNav（PC常時表示 / モバイルはnavモード時のみ） -->
+    <div
+      class="lg:w-[240px] lg:shrink-0 lg:overflow-y-auto lg:border-r border-default"
+      :class="{ 'hidden lg:block': mobileView === 'list' }"
+    >
+      <!-- 放置・繰り越しアラート -->
+      <div class="px-3 pb-2 flex flex-col gap-2">
         <UAlert
           v-if="staleCount > 0"
           :title="`放置タスク ${staleCount}件`"
@@ -160,7 +132,6 @@ onMounted(async () => {
           variant="subtle"
           icon="i-lucide-clock"
           :actions="[{ label: '確認する', to: '/stale', variant: 'outline', size: 'xs' }]"
-          class="flex-1"
         />
         <UAlert
           v-if="carryoverCount > 0"
@@ -169,92 +140,113 @@ onMounted(async () => {
           variant="subtle"
           icon="i-lucide-calendar-x"
           :actions="[{ label: '処理する', to: '/carryover', variant: 'outline', size: 'xs' }]"
-          class="flex-1"
         />
       </div>
 
-      <!-- ステータスフィルタ（複数選択） -->
-      <div class="flex flex-wrap gap-1 mb-2">
+      <!-- AppNav ナビゲーション -->
+      <AppNav
+        :model-value="selectedNavKey"
+        :stale-count="staleCount"
+        :carryover-count="carryoverCount"
+        @update:model-value="selectedNavKey = $event"
+        @navigate="handleNavSelect"
+      />
+
+      <!-- 新規作成ボタン（モバイルのナビ画面） -->
+      <div class="px-4 pt-2 lg:hidden">
         <UButton
-          v-for="s in ALL_STATUSES"
-          :key="s"
-          size="xs"
-          :variant="selectedStatuses.includes(s) ? 'solid' : 'ghost'"
-          color="neutral"
-          @click="toggleStatus(s)"
+          to="/tasks/new"
+          icon="i-lucide-plus"
+          size="sm"
+          block
         >
-          {{ STATUS_LABELS[s] }}
+          新規作成
         </UButton>
       </div>
 
-      <!-- 期限フィルタ -->
-      <div class="flex flex-wrap gap-1 mb-2">
+      <!-- 設定ボタン（モバイルのナビ画面） -->
+      <div class="px-4 pt-10 ">
         <UButton
-          v-for="opt in [{ label: '今日・明日', value: 'today_tomorrow' }, { label: '全て', value: 'all' }]"
-          :key="opt.value"
-          size="xs"
-          :variant="dueDateFilter === opt.value ? 'solid' : 'ghost'"
+          to="/settings"
+          icon="i-lucide-settings"
+          size="sm"
+          variant="ghost"
           color="neutral"
-          @click="dueDateFilter = opt.value as 'today_tomorrow' | 'all'"
+          title="設定"
+          block
         >
-          {{ opt.label }}
+          設定
         </UButton>
-      </div>
-
-      <!-- タイプ・優先度フィルタ -->
-      <div class="flex flex-wrap items-center gap-2 mb-4">
-        <USelect
-          v-model="typeFilter"
-          :items="[{ label: 'research', value: 'research' }, { label: 'decision', value: 'decision' }, { label: 'execution', value: 'execution' }]"
-          placeholder="全タイプ"
-          value-key="value"
-          size="sm"
-          class="w-32"
-        />
-        <USelect
-          v-model="priorityFilter"
-          :items="[{ label: 'must', value: 'must' }, { label: 'should', value: 'should' }]"
-          placeholder="全優先度"
-          value-key="value"
-          size="sm"
-          class="w-28"
-        />
-      </div>
-
-      <div
-        v-if="filteredTasks.length === 0"
-        class="text-center text-muted py-12"
-      >
-        タスクがありません
-      </div>
-      <div
-        v-else
-        class="space-y-2"
-      >
-        <TaskCard
-          v-for="task in filteredTasks"
-          :key="task.id"
-          :task="task"
-          :selected="task.id === taskStore.selectedTaskId"
-          @select="handleTaskSelect"
-        />
       </div>
     </div>
 
-    <!-- 右カラム（lgのみ表示） -->
-    <div class="hidden lg:flex lg:flex-1 lg:overflow-y-auto p-4">
-      <TaskDetailPanel
-        v-if="taskStore.currentTask && taskStore.selectedTaskId"
-        :task="taskStore.currentTask"
-        :task-id="taskStore.selectedTaskId"
-        class="w-full"
-        @refresh="handleDetailRefresh"
-      />
-      <div
-        v-else
-        class="flex flex-1 items-center justify-center text-muted"
-      >
-        タスクを選択してください
+    <!-- 右カラム: タスクリスト + 詳細パネル（PC常時表示 / モバイルはlistモード時のみ） -->
+    <div
+      class="lg:flex lg:flex-1 lg:overflow-hidden"
+      :class="{ 'hidden lg:flex': mobileView === 'nav' }"
+    >
+      <!-- タスクリスト -->
+      <div class="flex-1 overflow-y-auto p-4 lg:max-w-[360px] lg:border-r border-default">
+        <!-- リストヘッダー -->
+        <div class="flex items-center justify-between mb-4">
+          <div class="flex items-center gap-2">
+            <UButton
+              icon="i-lucide-arrow-left"
+              size="sm"
+              variant="ghost"
+              color="neutral"
+              class="lg:hidden"
+              @click="handleBack"
+            />
+            <h2 class="text-lg font-semibold">
+              {{ selectedNavLabel }}
+            </h2>
+          </div>
+          <UButton
+            to="/tasks/new"
+            icon="i-lucide-plus"
+            size="sm"
+          >
+            新規作成
+          </UButton>
+        </div>
+
+        <!-- タスクリスト本体 -->
+        <div
+          v-if="filteredTasks.length === 0"
+          class="text-center text-muted py-12"
+        >
+          タスクがありません
+        </div>
+        <div
+          v-else
+          class="space-y-2"
+        >
+          <TaskCard
+            v-for="task in filteredTasks"
+            :key="task.id"
+            :task="task"
+            :selected="task.id === taskStore.selectedTaskId"
+            @select="handleTaskSelect"
+          />
+        </div>
+      </div>
+
+      <!-- 詳細パネル（lgのみ） -->
+      <div class="hidden lg:flex lg:flex-1 lg:overflow-y-auto p-4">
+        <TaskDetailPanel
+          v-if="taskStore.currentTask && taskStore.selectedTaskId"
+          :task="taskStore.currentTask"
+          :task-id="taskStore.selectedTaskId"
+          class="w-full"
+          @refresh="handleDetailRefresh"
+        />
+        <div
+          v-else
+          class="flex flex-1 items-center justify-center text-muted"
+        >
+          タスクを選択してください
+        </div>
       </div>
     </div>
   </div>

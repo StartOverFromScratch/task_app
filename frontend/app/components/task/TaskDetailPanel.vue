@@ -2,7 +2,7 @@
 import type { TaskDetail } from '~/types/task'
 
 const { task, taskId } = defineProps<{ task: TaskDetail, taskId: number }>()
-const emit = defineEmits<{ refresh: [] }>()
+const emit = defineEmits<{ refresh: [], back: [] }>()
 
 const { updateTask, deleteTask, completeTask } = useTask()
 
@@ -25,10 +25,21 @@ async function handleStatusChange(s: string) {
   await updateTask(taskId, { status: s as Exclude<import('~/types/task').TaskStatus, 'done'> })
   emit('refresh')
 }
+function handleBack() {
+  emit('back')
+}
 </script>
 
 <template>
   <div class="space-y-4">
+    <UButton
+      icon="i-lucide-arrow-left"
+      size="sm"
+      variant="ghost"
+      color="neutral"
+      class="lg:hidden"
+      @click="handleBack"
+    />
     <!-- ヘッダー -->
     <div class="flex items-start justify-between gap-2">
       <h2 class="text-xl font-bold leading-tight">
@@ -58,7 +69,6 @@ async function handleStatusChange(s: string) {
       <div class="space-y-3">
         <div class="flex flex-wrap gap-2 items-center">
           <TaskTypeBadge :type="task.task_type" />
-          <TaskStatusBadge :status="task.status" />
           <UBadge
             :label="task.priority"
             :color="task.priority === 'must' ? 'error' : 'neutral'"
@@ -113,26 +123,6 @@ async function handleStatusChange(s: string) {
       <template #footer>
         <div class="flex flex-wrap gap-2">
           <UButton
-            v-if="task.status !== 'done'"
-            icon="i-lucide-check-circle"
-            color="success"
-            size="sm"
-            @click="showCompleteModal = true"
-          >
-            完了にする
-          </UButton>
-        </div>
-      </template>
-    </UCard>
-
-    <!-- ステータス変更 -->
-    <UCard>
-      <div class="space-y-2">
-        <p class="text-sm font-medium text-muted">
-          ステータス変更
-        </p>
-        <div class="flex flex-wrap gap-1">
-          <UButton
             v-for="s in ['todo', 'doing', 'needs_redefine', 'snoozed']"
             :key="s"
             size="xs"
@@ -142,8 +132,17 @@ async function handleStatusChange(s: string) {
           >
             {{ { todo: '未着手', doing: '進行中', needs_redefine: '要再定義', snoozed: '保留' }[s] }}
           </UButton>
+          <UButton
+            v-if="task.status !== 'done'"
+            icon="i-lucide-check-circle"
+            color="success"
+            size="sm"
+            @click="showCompleteModal = true"
+          >
+            完了
+          </UButton>
         </div>
-      </div>
+      </template>
     </UCard>
 
     <!-- チェックリスト -->

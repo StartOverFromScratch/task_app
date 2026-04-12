@@ -1,55 +1,18 @@
 <script setup lang="ts">
 useHead({ htmlAttrs: { lang: 'ja' } })
-useSeoMeta({ title: 'タスク管理' })
+useSeoMeta({ title: 'Tapp' })
 </script>
 
 <template>
   <UApp>
-    <UHeader>
-      <template #left>
-        <NuxtLink
-          to="/"
-          class="font-bold text-lg text-primary"
-        >タスク管理</NuxtLink>
-      </template>
-      <template #right>
-        <UButton
-          to="/"
-          variant="ghost"
-          color="neutral"
-        >
-          タスク
-        </UButton>
-        <UButton
-          to="/carryover"
-          variant="ghost"
-          color="neutral"
-        >
-          繰り越し
-        </UButton>
-        <UButton
-          to="/stale"
-          variant="ghost"
-          color="neutral"
-        >
-          放置
-        </UButton>
-        <UButton
-          to="/capture"
-          variant="ghost"
-          color="neutral"
-        >
-          Capture
-        </UButton>
-        <UButton
-          to="/settings"
-          variant="ghost"
-          color="neutral"
-          icon="i-lucide-settings"
-        />
-        <UColorModeButton />
-      </template>
-    </UHeader>
+    <div class="hidden lg:flex items-center h-16 px-6 border-b border-default shrink-0">
+      <NuxtLink
+        to="/"
+        class="font-bold text-lg text-primary"
+      >
+        Tapp
+      </NuxtLink>
+    </div>
     <UMain>
       <UContainer class="py-6">
         <NuxtPage />

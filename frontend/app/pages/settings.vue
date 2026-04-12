@@ -6,10 +6,12 @@ const notifyTime1 = ref('09:00')
 const notifyTime2 = ref('16:00')
 const enabled = ref(false)
 const loading = ref(false)
+const { isActive: wakeLockActive, isSupported: wakeLockSupported, toggle: toggleWakeLock } = useWakeLock()
+const { isSubscribed: pushSubscribed, isSupported: pushSupported, toggle: togglePush, sendTodayDue } = usePushNotification()
 
 onMounted(async () => {
   try {
-    const res = await $fetch<{ notify_time_1: string | null; notify_time_2: string | null; enabled: boolean }>(
+    const res = await $fetch<{ notify_time_1: string | null, notify_time_2: string | null, enabled: boolean }>(
       `${apiBase}/push/notification-setting`
     )
     notifyTime1.value = res.notify_time_1 ?? '09:00'
@@ -28,8 +30,8 @@ async function save() {
       body: {
         notify_time_1: notifyTime1.value || null,
         notify_time_2: notifyTime2.value || null,
-        enabled: enabled.value,
-      },
+        enabled: enabled.value
+      }
     })
     toast.add({ title: '設定を保存しました', color: 'success' })
   } catch {
@@ -83,7 +85,34 @@ async function save() {
             >
           </div>
         </div>
-
+        <UColorModeButton />
+        <UButton
+          v-if="wakeLockSupported"
+          :icon="wakeLockActive ? 'i-lucide-sun' : 'i-lucide-moon'"
+          size="sm"
+          :variant="wakeLockActive ? 'solid' : 'ghost'"
+          :color="wakeLockActive ? 'warning' : 'neutral'"
+          :title="wakeLockActive ? 'スリープ防止中' : 'スリープ防止OFF'"
+          @click="toggleWakeLock"
+        />
+        <UButton
+          v-if="pushSupported"
+          :icon="pushSubscribed ? 'i-lucide-bell' : 'i-lucide-bell-off'"
+          size="sm"
+          :variant="pushSubscribed ? 'solid' : 'ghost'"
+          :color="pushSubscribed ? 'primary' : 'neutral'"
+          :title="pushSubscribed ? '通知ON' : '通知OFF'"
+          @click="togglePush"
+        />
+        <UButton
+          v-if="pushSubscribed"
+          icon="i-lucide-send"
+          size="sm"
+          variant="ghost"
+          color="neutral"
+          title="今日の期限タスクを今すぐ通知"
+          @click="sendTodayDue"
+        />
         <UButton
           :loading="loading"
           block

@@ -1,9 +1,10 @@
 # タスク管理システム バックエンド設計書
 
-**バージョン:** v0.4
+**バージョン:** v0.5
 **対象:** バックエンド（FastAPI）
 **作成日:** 2026-02-25
-**更新日:** 2026-03-10
+**更新日:** 2026-04-11
+**変更点（v0.5）:** `GET /tasks` に `category` クエリパラメータを追加
 **変更点（v0.4）:** プッシュ通知の不具合修正（VAPID 環境変数・スケジューラログ・エラー可視化）
 **変更点（v0.3）:** プッシュ通知機能追加（VAPID / Web Push / APScheduler 定時通知）
 
@@ -227,9 +228,10 @@ Priority        : must | should
 CarryoverAction : today | plus_2d | plus_7d | needs_redefine
 SortBy          : due_date | created_at | priority | title  ※ v0.2追加
 SortOrder       : asc | desc                                 ※ v0.2追加
+CategoryFilter  : string（完全一致）                         ※ v0.5追加
 ```
 
-### GET /tasks（v0.2更新）
+### GET /tasks（v0.5更新）
 
 **クエリパラメータ**
 
@@ -239,6 +241,7 @@ SortOrder       : asc | desc                                 ※ v0.2追加
 | task_type | TaskType | null | タスクタイプフィルタ |
 | priority | Priority | null | 優先度フィルタ |
 | parent_id | int \| null | 指定なし | 親IDフィルタ（0を渡すとparent_id=nullのみ取得） |
+| category | string | null | カテゴリフィルタ（完全一致）※v0.5追加 |
 | sort_by | SortBy | `due_date` | ソートキー |
 | order | SortOrder | `asc` | ソート順 |
 
@@ -692,3 +695,4 @@ uvicorn の子プロセスでは Python `logging` モジュールのハンドラ
 | PostgreSQL移行 | 低 | NULLs LAST の挙動はDBによって差異があるため移行時に要確認 |
 | 認証 | 低 | JWT Bearer Token（v0.4以降） |
 | プッシュ通知テスト | 低 | push_service / scheduler の単体テスト追加 |
+| カテゴリマスタ管理 | 将来 | `categories` テーブル追加・`tasks.category` を外部キー参照に変更・CRUD APIを追加（フロントエンド設計書 v1.0スコープ参照） |

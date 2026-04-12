@@ -2,7 +2,7 @@
 import type { TaskDetail } from '~/types/task'
 
 const { task, taskId } = defineProps<{ task: TaskDetail, taskId: number }>()
-const emit = defineEmits<{ refresh: [] }>()
+const emit = defineEmits<{ refresh: [], back: [] }>()
 
 const { updateTask, deleteTask, completeTask } = useTask()
 
@@ -25,10 +25,21 @@ async function handleStatusChange(s: string) {
   await updateTask(taskId, { status: s as Exclude<import('~/types/task').TaskStatus, 'done'> })
   emit('refresh')
 }
+function handleBack() {
+  emit('back')
+}
 </script>
 
 <template>
   <div class="space-y-4">
+    <UButton
+      icon="i-lucide-arrow-left"
+      size="sm"
+      variant="ghost"
+      color="neutral"
+      class="lg:hidden"
+      @click="handleBack"
+    />
     <!-- ヘッダー -->
     <div class="flex items-start justify-between gap-2">
       <h2 class="text-xl font-bold leading-tight">

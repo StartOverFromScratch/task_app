@@ -7,6 +7,7 @@ const { fetchCandidates } = useCarryover()
 const taskStore = useTaskStore()
 const carryoverStore = useCarryoverStore()
 const router = useRouter()
+const route = useRoute()
 const { NAV_ITEMS } = useNavItems()
 
 // ナビ選択状態
@@ -107,6 +108,9 @@ function handleBack() {
 }
 
 onMounted(async () => {
+  if (route.query.view === 'list') {
+    mobileView.value = 'list'
+  }
   await loadTasks()
   await fetchCandidates()
   try {
@@ -123,26 +127,6 @@ onMounted(async () => {
       class="lg:w-[240px] lg:shrink-0 lg:overflow-y-auto lg:border-r border-default"
       :class="{ 'hidden lg:block': mobileView === 'list' }"
     >
-      <!-- 放置・繰り越しアラート -->
-      <div class="px-3 pb-2 flex flex-col gap-2">
-        <UAlert
-          v-if="staleCount > 0"
-          :title="`放置タスク ${staleCount}件`"
-          color="warning"
-          variant="subtle"
-          icon="i-lucide-clock"
-          :actions="[{ label: '確認する', to: '/stale', variant: 'outline', size: 'xs' }]"
-        />
-        <UAlert
-          v-if="carryoverCount > 0"
-          :title="`繰り越し候補 ${carryoverCount}件`"
-          color="error"
-          variant="subtle"
-          icon="i-lucide-calendar-x"
-          :actions="[{ label: '処理する', to: '/carryover', variant: 'outline', size: 'xs' }]"
-        />
-      </div>
-
       <!-- AppNav ナビゲーション -->
       <AppNav
         :model-value="selectedNavKey"
@@ -198,7 +182,7 @@ onMounted(async () => {
               class="lg:hidden"
               @click="handleBack"
             />
-            <h2 class="text-lg font-semibold">
+            <h2 class="text-2xl font-semibold">
               {{ selectedNavLabel }}
             </h2>
           </div>
@@ -220,7 +204,6 @@ onMounted(async () => {
         </div>
         <div
           v-else
-          class="space-y-2"
         >
           <TaskCard
             v-for="task in filteredTasks"
@@ -240,6 +223,7 @@ onMounted(async () => {
           :task-id="taskStore.selectedTaskId"
           class="w-full"
           @refresh="handleDetailRefresh"
+          @back="handleBack"
         />
         <div
           v-else

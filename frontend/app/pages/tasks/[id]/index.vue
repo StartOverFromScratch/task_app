@@ -1,5 +1,6 @@
 <script setup lang="ts">
 const route = useRoute()
+const router = useRouter()
 const taskId = Number(route.params.id)
 
 const { fetchTask } = useTask()
@@ -15,14 +16,11 @@ onMounted(() => fetchTask(taskId))
 
 <template>
   <div v-if="task">
-    <PageHeader
-      :title="task.title"
-      back-to="/"
-    />
     <TaskDetailPanel
       :task="task"
       :task-id="taskId"
       @refresh="handleRefresh"
+      @back="router.push('/?view=list')"
     />
   </div>
   <div

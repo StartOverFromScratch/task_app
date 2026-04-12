@@ -26,6 +26,12 @@ function getBadgeCount(key: string): number | null {
   if (key === 'carryover') return carryoverCount > 0 ? carryoverCount : null
   return null
 }
+
+function getAlertColor(key: string): 'warning' | 'error' | null {
+  if (key === 'stale' && staleCount > 0) return 'warning'
+  if (key === 'carryover' && carryoverCount > 0) return 'error'
+  return null
+}
 </script>
 
 <template>
@@ -45,7 +51,11 @@ function getBadgeCount(key: string): number | null {
         :class="[
           !item.to && modelValue === item.key
             ? 'bg-primary text-white'
-            : 'hover:bg-elevated text-default'
+            : getAlertColor(item.key) === 'warning'
+              ? 'hover:bg-elevated text-warning'
+              : getAlertColor(item.key) === 'error'
+                ? 'hover:bg-elevated text-error'
+                : 'hover:bg-elevated text-default'
         ]"
         @click="handleClick(item)"
       >
@@ -57,7 +67,7 @@ function getBadgeCount(key: string): number | null {
         <UBadge
           v-if="getBadgeCount(item.key) !== null"
           :label="String(getBadgeCount(item.key))"
-          color="neutral"
+          :color="getAlertColor(item.key) ?? 'neutral'"
           variant="subtle"
           size="sm"
         />

@@ -5,15 +5,14 @@ useSeoMeta({ title: 'Tapp' })
 
 <template>
   <UApp>
-    <UHeader>
-      <template #left>
-        <NuxtLink
-          to="/"
-          class="font-bold text-lg text-primary"
-        >Tapp</NuxtLink>
-      </template>
-      <template #right />
-    </UHeader>
+    <div class="hidden lg:flex items-center h-16 px-6 border-b border-default shrink-0">
+      <NuxtLink
+        to="/"
+        class="font-bold text-lg text-primary"
+      >
+        Tapp
+      </NuxtLink>
+    </div>
     <UMain>
       <UContainer class="py-6">
         <NuxtPage />
